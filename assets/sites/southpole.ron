@@ -1,0 +1,45 @@
+(
+    site: "southpole",
+    projected_bbox: (-60000.0, -60000.0, 60000.0, 60000.0),
+    world_bbox: (-60000.0, -60000.0, 60000.0, 60000.0),
+    base_mpp: 320.0,
+    tile_size_px: 512,
+    zoom_levels: [
+        (
+            zoom: 0,
+            mpp: 320.0,
+            tiles_x: 1,
+            tiles_y: 1,
+        ),
+        (
+            zoom: 1,
+            mpp: 160.0,
+            tiles_x: 2,
+            tiles_y: 2,
+        ),
+        (
+            zoom: 2,
+            mpp: 80.0,
+            tiles_x: 3,
+            tiles_y: 3,
+        ),
+        (
+            zoom: 3,
+            mpp: 40.0,
+            tiles_x: 6,
+            tiles_y: 6,
+        ),
+    ],
+    dem: (
+        path: "elevation/southpole.png",
+        width: 3000,
+        height: 3000,
+        elev_min_m: -4378.477,
+        elev_max_m: 1958.633,
+    ),
+    sun: (
+        azimuth_deg: 135.0,
+        altitude_deg: 1.5,
+    ),
+    crs_proj4: "+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R=1737400 +units=m +no_defs",
+)

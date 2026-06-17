@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/moon_data", "crates/moon_game", "tools/geo_pipeline"]
+
+# Shared, pinned dependency versions. Member crates opt in via `dep.workspace = true`.
+# Pin per iteration (It-0); upgrade only at iteration boundaries.
+[workspace.dependencies]
+# Bevy 0.18 (released 2026-01-13); bevy_egui 0.39 is the release targeting Bevy 0.18.
+bevy = "0.18"
+bevy_egui = "0.39"
+# glam 0.30 matches the version Bevy 0.18 depends on (bevy_math -> glam ^0.30.7).
+glam = "0.30"
+serde = { version = "1", features = ["derive"] }
+# serde_json is used only by geo_pipeline to parse `gdalinfo -json` output.
+serde_json = "1"
+ron = "0.8"
+image = "0.25"
+bytemuck = "1"
+thiserror = "2"
+tracing = "0.1"
+# Internal crates
+moon_data = { path = "crates/moon_data" }
+
+# Build the game with `--release` for the 60 fps target. Dev builds of Bevy are slow;
+# opt-level=1 on the workspace and 3 on deps keeps iteration usable without --release.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

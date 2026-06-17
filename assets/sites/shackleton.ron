@@ -1,0 +1,45 @@
+(
+    site: "shackleton",
+    projected_bbox: (-9000.0, -15000.0, 7000.0, 1000.0),
+    world_bbox: (-8000.0, -8000.0, 8000.0, 8000.0),
+    base_mpp: 40.0,
+    tile_size_px: 512,
+    zoom_levels: [
+        (
+            zoom: 0,
+            mpp: 40.0,
+            tiles_x: 1,
+            tiles_y: 1,
+        ),
+        (
+            zoom: 1,
+            mpp: 20.0,
+            tiles_x: 2,
+            tiles_y: 2,
+        ),
+        (
+            zoom: 2,
+            mpp: 10.0,
+            tiles_x: 4,
+            tiles_y: 4,
+        ),
+        (
+            zoom: 3,
+            mpp: 5.0,
+            tiles_x: 7,
+            tiles_y: 7,
+        ),
+    ],
+    dem: (
+        path: "elevation/shackleton.png",
+        width: 3200,
+        height: 3200,
+        elev_min_m: -2847.877,
+        elev_max_m: 1805.073,
+    ),
+    sun: (
+        azimuth_deg: 135.0,
+        altitude_deg: 1.5,
+    ),
+    crs_proj4: "+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R=1737400 +units=m +no_defs",
+)

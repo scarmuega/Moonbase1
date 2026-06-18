@@ -69,6 +69,10 @@ pub fn debug_ui(
         ui.separator();
         ui.checkbox(&mut hillshade.visible, "hillshade (H)");
         ui.checkbox(&mut hillshade.sweeping, "sun sweep (G)");
+        let mut ramp = hillshade.mode == 1;
+        if ui.checkbox(&mut ramp, "height ramp debug (J)").changed() {
+            hillshade.mode = u32::from(ramp);
+        }
         ui.add(
             egui::Slider::new(&mut hillshade.sun_azimuth_deg, 0.0..=360.0).text("sun azimuth°"),
         );

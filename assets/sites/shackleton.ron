@@ -38,8 +38,12 @@
         elev_max_m: 1805.073,
     ),
     sun: (
-        azimuth_deg: 135.0,
-        altitude_deg: 1.5,
+        // Cartographic convention: light from the upper-left (NW) so relief reads
+        // correctly (craters concave, peaks raised) instead of triggering the
+        // light-from-below relief-inversion illusion. The `G` sun-sweep still rotates
+        // through the physically-faithful grazing-sun azimuths.
+        azimuth_deg: 315.0,
+        altitude_deg: 35.0,
     ),
     crs_proj4: "+proj=stere +lat_0=-90 +lon_0=0 +k=1 +x_0=0 +y_0=0 +R=1737400 +units=m +no_defs",
 )

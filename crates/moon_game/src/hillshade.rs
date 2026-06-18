@@ -73,6 +73,8 @@ pub struct HillshadeState {
     pub sun_altitude_deg: f32,
     /// When set, the azimuth auto-rotates (the `G` sun-sweep for the relief reveal).
     pub sweeping: bool,
+    /// Shading mode: 0 = hillshade relief, 1 = debug height ramp (color by elevation).
+    pub mode: u32,
 }
 
 /// Handle to the spawned material, so the sync system can rewrite its uniforms.
@@ -117,6 +119,7 @@ fn setup_hillshade(
         sun_azimuth_deg: m.sun.azimuth_deg,
         sun_altitude_deg: m.sun.altitude_deg,
         sweeping: false,
+        mode: 0,
     };
 
     let material = materials.add(HillshadeMaterial {
@@ -127,7 +130,7 @@ fn setup_hillshade(
             elev_max: m.dem.elev_max_m as f32,
             sun_azimuth: state.sun_azimuth_deg.to_radians(),
             sun_altitude: state.sun_altitude_deg.to_radians(),
-            mode: 0,
+            mode: state.mode,
         },
         dem: asset_server.load(m.dem.path.clone()),
     });
@@ -145,9 +148,14 @@ fn setup_hillshade(
 }
 
 /// `H` flips the hillshade layer on/off (the egui checkbox writes the same flag).
+/// `J` toggles the debug height ramp (color by elevation) — a sanity check that crater
+/// floors read low and rims/peaks read high, independent of any lighting illusion.
 fn toggle_hillshade(keys: Res<ButtonInput<KeyCode>>, mut state: ResMut<HillshadeState>) {
     if keys.just_pressed(KeyCode::KeyH) {
         state.visible = !state.visible;
+    }
+    if keys.just_pressed(KeyCode::KeyJ) {
+        state.mode = 1 - state.mode;
     }
 }
 
@@ -198,5 +206,6 @@ fn sync_uniforms(
     if let Some(mat) = materials.get_mut(&handle.0) {
         mat.params.sun_azimuth = state.sun_azimuth_deg.to_radians();
         mat.params.sun_altitude = state.sun_altitude_deg.to_radians();
+        mat.params.mode = state.mode;
     }
 }

@@ -27,8 +27,6 @@ struct TerrainParams {
     sun_azimuth: f32,
     sun_altitude: f32,
     vexag: f32,
-    // Strength of the synthetic dusty albedo texture (0 = flat albedo).
-    detail: f32,
     // Strength of synthetic sub-DEM relief added to the lighting normal (0 = off).
     synth: f32,
 };
@@ -83,18 +81,6 @@ fn vnoise(p: vec2<f32>) -> f32 {
     let c = hash2(i + vec2<f32>(0.0, 1.0));
     let d = hash2(i + vec2<f32>(1.0, 1.0));
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-fn fbm(p: vec2<f32>) -> f32 {
-    var v = 0.0;
-    var amp = 0.5;
-    var q = p;
-    for (var i: i32 = 0; i < 4; i = i + 1) {
-        v += amp * vnoise(q);
-        q *= 2.0;
-        amp *= 0.5;
-    }
-    return v;
 }
 
 // Synthetic sub-DEM relief (meters): a few fine fractal octaves (~2–32 m features) used
@@ -164,11 +150,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         sin(p.sun_altitude),                       // up    (+z)
     );
     let illum = max(clamp(dot(n, l), 0.0, 1.0), AMBIENT);
-
-    // Synthetic dusty texture: broad mottle (~20 m) + fine grain (~1 m) modulating albedo.
-    let mottle = fbm(world * 0.05) - 0.5;
-    let grain = vnoise(world * 0.8) - 0.5;
-    let dust = 1.0 + p.detail * (mottle * 0.35 + grain * 0.18);
-
-    return vec4<f32>(illum * REGOLITH * dust, 1.0);
+    return vec4<f32>(illum * REGOLITH, 1.0);
 }

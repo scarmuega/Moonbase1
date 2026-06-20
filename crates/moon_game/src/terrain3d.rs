@@ -35,8 +35,6 @@ const UI_LAYER: usize = 2;
 const MAX_GRID_QUADS: u32 = 2048;
 /// Default vertical exaggeration; the relief at these poles is gentle. Slider 1–8.
 const DEFAULT_VEXAG: f32 = 2.5;
-/// Default synthetic dust (albedo) strength. Slider 0–1.
-const DEFAULT_DETAIL: f32 = 0.6;
 /// Default synthetic sub-DEM relief strength. Slider 0–2.
 const DEFAULT_SYNTH: f32 = 0.7;
 /// Orbit drag sensitivity (radians per pixel of mouse motion).
@@ -88,18 +86,13 @@ impl CameraRig {
 /// Live surface-look control (egui-tunable).
 #[derive(Resource)]
 pub struct TerrainLook {
-    /// Synthetic dusty-albedo strength (0 = flat albedo).
-    pub detail: f32,
     /// Synthetic sub-DEM relief strength (0 = real DEM relief only).
     pub synth: f32,
 }
 
 impl Default for TerrainLook {
     fn default() -> Self {
-        Self {
-            detail: DEFAULT_DETAIL,
-            synth: DEFAULT_SYNTH,
-        }
+        Self { synth: DEFAULT_SYNTH }
     }
 }
 
@@ -113,7 +106,6 @@ pub struct TerrainParams {
     pub sun_azimuth: f32,
     pub sun_altitude: f32,
     pub vexag: f32,
-    pub detail: f32,
     pub synth: f32,
 }
 
@@ -178,7 +170,6 @@ fn setup(
             sun_azimuth: m.sun.azimuth_deg.to_radians(),
             sun_altitude: m.sun.altitude_deg.to_radians(),
             vexag: rig.vexag,
-            detail: look.detail,
             synth: look.synth,
         },
         dem: asset_server.load(m.dem.path.clone()),
@@ -331,7 +322,6 @@ fn sync_terrain(
         mat.params.sun_azimuth = state.sun_azimuth_deg.to_radians();
         mat.params.sun_altitude = state.sun_altitude_deg.to_radians();
         mat.params.vexag = rig.vexag;
-        mat.params.detail = look.detail;
         mat.params.synth = look.synth;
     }
 }

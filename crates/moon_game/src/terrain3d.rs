@@ -35,8 +35,10 @@ const UI_LAYER: usize = 2;
 const MAX_GRID_QUADS: u32 = 2048;
 /// Default vertical exaggeration; the relief at these poles is gentle. Slider 1–8.
 const DEFAULT_VEXAG: f32 = 2.5;
-/// Default synthetic dust strength. Slider 0–1.
+/// Default synthetic dust (albedo) strength. Slider 0–1.
 const DEFAULT_DETAIL: f32 = 0.6;
+/// Default synthetic sub-DEM relief strength. Slider 0–2.
+const DEFAULT_SYNTH: f32 = 0.7;
 /// Orbit drag sensitivity (radians per pixel of mouse motion).
 const ORBIT_SENS: f32 = 0.005;
 /// Fraction of `distance` changed per wheel "line" of scroll.
@@ -86,13 +88,18 @@ impl CameraRig {
 /// Live surface-look control (egui-tunable).
 #[derive(Resource)]
 pub struct TerrainLook {
-    /// Synthetic dust strength (0 = clean relief).
+    /// Synthetic dusty-albedo strength (0 = flat albedo).
     pub detail: f32,
+    /// Synthetic sub-DEM relief strength (0 = real DEM relief only).
+    pub synth: f32,
 }
 
 impl Default for TerrainLook {
     fn default() -> Self {
-        Self { detail: DEFAULT_DETAIL }
+        Self {
+            detail: DEFAULT_DETAIL,
+            synth: DEFAULT_SYNTH,
+        }
     }
 }
 
@@ -107,6 +114,7 @@ pub struct TerrainParams {
     pub sun_altitude: f32,
     pub vexag: f32,
     pub detail: f32,
+    pub synth: f32,
 }
 
 /// The terrain material: a uniform block + the R16Uint DEM (vertex + fragment,
@@ -171,6 +179,7 @@ fn setup(
             sun_altitude: m.sun.altitude_deg.to_radians(),
             vexag: rig.vexag,
             detail: look.detail,
+            synth: look.synth,
         },
         dem: asset_server.load(m.dem.path.clone()),
     });
@@ -323,5 +332,6 @@ fn sync_terrain(
         mat.params.sun_altitude = state.sun_altitude_deg.to_radians();
         mat.params.vexag = rig.vexag;
         mat.params.detail = look.detail;
+        mat.params.synth = look.synth;
     }
 }

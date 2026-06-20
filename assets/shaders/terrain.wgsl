@@ -27,8 +27,10 @@ struct TerrainParams {
     sun_azimuth: f32,
     sun_altitude: f32,
     vexag: f32,
-    // Strength of the synthetic dusty texture (0 = clean relief).
+    // Strength of the synthetic dusty albedo texture (0 = flat albedo).
     detail: f32,
+    // Strength of synthetic sub-DEM relief added to the lighting normal (0 = off).
+    synth: f32,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> p: TerrainParams;
@@ -95,6 +97,20 @@ fn fbm(p: vec2<f32>) -> f32 {
     return v;
 }
 
+// Synthetic sub-DEM relief (meters): a few fine fractal octaves (~2–32 m features) used
+// to fake resolution below the baked DEM. Plausible fabrication, not measured data.
+fn synth_height(w: vec2<f32>) -> f32 {
+    var h = 0.0;
+    var amp = 6.0; // meters at the coarsest synthetic octave
+    var freq = 1.0 / 32.0;
+    for (var i: i32 = 0; i < 5; i = i + 1) {
+        h += amp * (vnoise(w * freq) * 2.0 - 1.0);
+        amp *= 0.5;
+        freq *= 2.03;
+    }
+    return h;
+}
+
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
@@ -122,8 +138,25 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let h_r = height_at(tc + vec2<i32>( 1, 0), dims);
     let h_d = height_at(tc + vec2<i32>(0,  1), dims); // +v = south
     let h_u = height_at(tc + vec2<i32>(0, -1), dims); // -v = north
-    let dzdx = p.vexag * (h_r - h_l) / (2.0 * ground.x);
-    let dzdy = p.vexag * (h_u - h_d) / (2.0 * ground.y);
+    var dzdx = p.vexag * (h_r - h_l) / (2.0 * ground.x);
+    var dzdy = p.vexag * (h_u - h_d) / (2.0 * ground.y);
+
+    // Synthetic sub-DEM relief: add fine fractal slopes to the lighting normal so the
+    // surface reads finer than the baked DEM. Faded out by the screen footprint (world
+    // meters per pixel) so it doesn't shimmer/alias when zoomed out.
+    if (p.synth > 0.0) {
+        let footprint = max(fwidth(world.x), fwidth(world.y));
+        let aa = 1.0 - smoothstep(10.0, 60.0, footprint);
+        if (aa > 0.0) {
+            let e = max(footprint, 1.5);
+            let sx = (synth_height(world + vec2<f32>(e, 0.0)) - synth_height(world - vec2<f32>(e, 0.0))) / (2.0 * e);
+            let sy = (synth_height(world + vec2<f32>(0.0, e)) - synth_height(world - vec2<f32>(0.0, e))) / (2.0 * e);
+            let k = p.synth * p.vexag * aa;
+            dzdx += k * sx;
+            dzdy += k * sy;
+        }
+    }
+
     let n = normalize(vec3<f32>(-dzdx, -dzdy, 1.0));
     let l = vec3<f32>(
         cos(p.sun_altitude) * sin(p.sun_azimuth), // east  (+x)

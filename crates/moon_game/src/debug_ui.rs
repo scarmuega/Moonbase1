@@ -52,6 +52,7 @@ pub fn debug_ui(
 
         ui.separator();
         ui.add(egui::Slider::new(&mut rig.vexag, 1.0..=8.0).text("vertical exag."));
+        ui.add(egui::Slider::new(&mut look.synth, 0.0..=2.0).text("synthetic relief"));
         ui.add(egui::Slider::new(&mut look.detail, 0.0..=1.0).text("dust"));
         ui.checkbox(&mut sun.sweeping, "sun sweep (G)");
         ui.add(egui::Slider::new(&mut sun.sun_azimuth_deg, 0.0..=360.0).text("sun azimuth°"));

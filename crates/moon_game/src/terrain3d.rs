@@ -1,43 +1,42 @@
-//! Sprint 02 · Tier 1 — an optional 3D relief view.
+//! Sprint 02 · Tier 2 — 3D is the primary view.
 //!
-//! A [`Camera3d`] orbits a DEM-displaced terrain mesh, killing the relief-inversion
-//! illusion of the top-down 2D view with genuine parallax + occlusion. This is
-//! **additive and reversible**: the existing `Camera2d`, sprites, streaming, and 2D
-//! hillshade are untouched — toggling [`ViewMode`] (key **`T`**) swaps which camera is
-//! active and pauses the 2D-only systems.
+//! The app boots straight into a perspective `Camera3d` orbiting real lunar terrain:
+//! the baked LOLA DEM is turned into displaced geometry and the streamed LOD imagery is
+//! draped onto it as textured patches (see `streaming.rs`). A real [`DirectionalLight`]
+//! sun casts shadows — the *physical* fix to the depth-reading problem and the seed for
+//! the day/night / PSR story. The sun direction is the single shared parameter in
+//! [`HillshadeState`] (egui sliders + `G` sweep), now driving the light instead of a
+//! 2D shader.
 //!
-//! The heavy lifting is in [`assets/shaders/terrain3d.wgsl`]: the vertex stage samples
-//! the same R16Uint DEM as `hillshade.rs` and displaces a flat grid; the fragment stage
-//! reuses the hillshade sun + Lambertian math. The sun stays a single live parameter —
-//! [`HillshadeState`] feeds both the 2D hillshade and this material.
+//! Terrain uses `StandardMaterial` (PBR) so it receives the sun + cascaded shadows for
+//! free; the DEM is displaced on the CPU ([`DemHeights`]) and normals are computed from
+//! the displaced geometry. Because the pyramid is shallow (max_zoom 3 ⇒ ≤49 tiles), the
+//! streamer simply keeps the whole active-zoom level resident — no frustum math, and
+//! same-zoom patches share exact edge heights, so there are no cracks.
 //!
-//! Coordinate mapping (fixed here, reused by Tier 2): world `(x, y)` with +Y = north →
-//! Bevy 3D `(x, height·vexag, -y)`, so the ground is the XZ plane and +Y is up.
+//! Coordinate mapping (fixed in Tier 1): world `(x, y)` with +Y = north → Bevy 3D
+//! `(x, height·vexag, -y)`; the ground is the XZ plane and +Y is up.
 
-use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::RenderLayers;
+use bevy::image::Image;
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
+use bevy::light::CascadeShadowConfigBuilder;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
-use bevy::shader::ShaderRef;
+use bevy::asset::RenderAssetUsages;
 use bevy_egui::{EguiContexts, PrimaryEguiContext};
-use moon_data::{tile_path, SiteManifest, TileCoord};
+use moon_data::SiteManifest;
 
 use crate::hillshade::HillshadeState;
 use crate::Site;
 
-/// The 3D terrain renders on render layer 1 so the active scene camera sees only its
-/// own content (2D sprites/hillshade stay on the default layer 0).
-const TERRAIN_LAYER: usize = 1;
-/// The dedicated egui camera renders on an empty layer (no scene geometry) — it exists
-/// only to host the primary egui context and draw the overlay on top.
+/// The egui camera renders on an empty layer (no scene geometry) — it exists only to
+/// host the primary egui context and draw the overlay on top of the scene camera.
 const UI_LAYER: usize = 2;
-/// Grid resolution of the terrain plane, in quads per side (≈263 k verts at 512).
-const GRID_QUADS: u32 = 512;
-/// Default vertical exaggeration. Shackleton's ~4.65 km over 16 km (and southpole's
-/// even gentler relief) reads flat at 1×; the slider spans 1–8.
+/// Default vertical exaggeration; the relief at these poles is gentle. Slider 1–8.
 const DEFAULT_VEXAG: f32 = 2.5;
+/// Quads per side of each per-tile terrain patch (geometric fidelity vs. cost).
+pub const PATCH_RES: u32 = 48;
 /// Orbit drag sensitivity (radians per pixel of mouse motion).
 const ORBIT_SENS: f32 = 0.005;
 /// Fraction of `distance` changed per wheel "line" of scroll.
@@ -45,194 +44,121 @@ const ZOOM_SPEED: f32 = 0.12;
 /// Trackpad pixel-delta → line-equivalent factor (one wheel notch ≈ 16 px).
 const PIXEL_TO_LINE: f32 = 1.0 / 16.0;
 
-/// Which view the app is showing. Default is the unchanged 2D map.
-#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum ViewMode {
-    #[default]
-    Map2d,
-    Relief3d,
-}
-
-/// Run-condition: 2D-only systems (camera/flythrough/streaming) run here.
-pub fn in_map2d(mode: Res<ViewMode>) -> bool {
-    *mode == ViewMode::Map2d
-}
-
-/// Run-condition: the orbit controller runs only while the 3D view is active.
-fn in_relief3d(mode: Res<ViewMode>) -> bool {
-    *mode == ViewMode::Relief3d
-}
-
-/// Uniform block for `terrain3d.wgsl`; field order/types must match the WGSL struct.
-/// Mirrors `HillshadeParams` plus `vexag` and `surface_mode`.
-#[derive(Clone, ShaderType)]
-pub struct Terrain3dParams {
-    pub dem_world_min: Vec2,
-    pub dem_world_size: Vec2,
-    pub elev_min: f32,
-    pub elev_max: f32,
-    pub sun_azimuth: f32,
-    pub sun_altitude: f32,
-    pub vexag: f32,
-    /// 0 = hillshade relief, 1 = draped imagery, 2 = height-ramp debug.
-    pub surface_mode: u32,
-}
-
-/// The 3D terrain material: the uniform block, the R16Uint DEM (vertex + fragment,
-/// `textureLoad`, no sampler — as in `hillshade.rs`), and the single zoom-0 drape tile.
-#[derive(Asset, AsBindGroup, TypePath, Clone)]
-pub struct Terrain3dMaterial {
-    #[uniform(0)]
-    pub params: Terrain3dParams,
-    #[texture(1, sample_type = "u_int")]
-    pub dem: Handle<Image>,
-    #[texture(2)]
-    #[sampler(3)]
-    pub imagery: Handle<Image>,
-}
-
-impl Material for Terrain3dMaterial {
-    fn vertex_shader() -> ShaderRef {
-        "shaders/terrain3d.wgsl".into()
-    }
-    fn fragment_shader() -> ShaderRef {
-        "shaders/terrain3d.wgsl".into()
-    }
-}
-
-/// Orbit camera state + the live relief controls (vexag, surface mode) the egui panel
-/// writes. Distances are derived from the site's bbox so it adapts to any baked site.
+/// Orbit/perspective camera rig + the live vertical-exaggeration control. Distances
+/// derive from the site bbox so it adapts to any baked site.
 #[derive(Resource)]
-pub struct Relief3dController {
+pub struct CameraRig {
     pub yaw: f32,
     pub pitch: f32,
     pub distance: f32,
     pub target: Vec3,
     pub min_distance: f32,
     pub max_distance: f32,
+    pub fov: f32,
     pub vexag: f32,
-    pub surface_mode: u32,
 }
 
-impl Relief3dController {
+impl CameraRig {
     fn from_manifest(m: &SiteManifest) -> Self {
         let (min, max) = (m.world_min(), m.world_max());
         let center = (min + max) * 0.5;
         let diag = (max - min).length();
         Self {
-            // Seed an oblique framing with the sun raking across the relief.
             yaw: 45f32.to_radians(),
-            pitch: 40f32.to_radians(),
+            pitch: 35f32.to_radians(),
             distance: diag * 0.8,
-            // World +Y (north) maps to 3D -Z; ground sits at y = 0.
             target: Vec3::new(center.x, 0.0, -center.y),
-            min_distance: diag * 0.08,
+            min_distance: diag * 0.05,
             max_distance: diag * 2.0,
+            fov: 50f32.to_radians(),
             vexag: DEFAULT_VEXAG,
-            surface_mode: 0,
         }
     }
 
     /// Eye transform from spherical coords, looking at the site center.
-    fn transform(&self) -> Transform {
+    pub fn transform(&self) -> Transform {
         let cp = self.pitch.cos();
         let dir = Vec3::new(cp * self.yaw.sin(), self.pitch.sin(), cp * self.yaw.cos());
         Transform::from_translation(self.target + dir * self.distance).looking_at(self.target, Vec3::Y)
     }
+
+    /// Approximate ground-sample distance (m/px) at the focus, for LOD selection.
+    pub fn ground_sample_distance(&self, viewport_height_px: f32) -> f32 {
+        let visible_world_height = 2.0 * self.distance * (self.fov * 0.5).tan();
+        visible_world_height / viewport_height_px.max(1.0)
+    }
 }
 
-/// Handle to the terrain material, so the sync system can rewrite its uniforms.
+/// DEM elevation cached on the CPU (decoded from the R16Uint heightmap) so terrain
+/// patches can be displaced + normal-computed without a GPU readback.
 #[derive(Resource)]
-struct Terrain3dHandle(Handle<Terrain3dMaterial>);
+pub struct DemHeights {
+    samples: Vec<u16>,
+    width: usize,
+    height: usize,
+    world_min: Vec2,
+    world_size: Vec2,
+    elev_min: f32,
+    elev_range: f32,
+}
 
-/// Marks the orbit/perspective 3D camera (distinct from the 2D `Camera2d`).
+impl DemHeights {
+    /// Elevation in meters at a world point (nearest texel), top-left = north origin —
+    /// mirrors `moon_data::world_to_dem_uv` / the Tier-1 shader.
+    pub fn height_at_world(&self, world: Vec2) -> f32 {
+        let u = ((world.x - self.world_min.x) / self.world_size.x).clamp(0.0, 1.0);
+        let v = ((self.world_min.y + self.world_size.y - world.y) / self.world_size.y).clamp(0.0, 1.0);
+        let x = ((u * self.width as f32) as usize).min(self.width - 1);
+        let y = ((v * self.height as f32) as usize).min(self.height - 1);
+        let s = self.samples[y * self.width + x] as f32 / 65535.0;
+        self.elev_min + s * self.elev_range
+    }
+}
+
+/// Handle to the DEM image, used to build [`DemHeights`] once it finishes loading.
+#[derive(Resource)]
+struct DemHandle(Handle<Image>);
+
+/// Marks the main scene camera (the perspective one the player drives).
 #[derive(Component)]
-struct Relief3dCamera;
+pub struct MainCamera;
+
+/// Marks the directional sun light.
+#[derive(Component)]
+struct SunLight;
 
 pub struct Terrain3dPlugin;
 
 impl Plugin for Terrain3dPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<Terrain3dMaterial>::default())
-            .init_resource::<ViewMode>()
-            .add_systems(Startup, setup_terrain3d)
-            .add_systems(
-                Update,
-                (
-                    (toggle_view_mode, apply_view_mode).chain(),
-                    relief3d_orbit.run_if(in_relief3d),
-                    sync_terrain_uniforms,
-                ),
-            );
+        app.add_systems(Startup, setup)
+            .add_systems(Update, (build_dem_cache, orbit_camera, update_sun));
     }
 }
 
-/// Build the terrain mesh + material and spawn the (initially inactive) 3D camera.
-fn setup_terrain3d(
-    mut commands: Commands,
-    site: Res<Site>,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<Terrain3dMaterial>>,
-) {
+fn setup(mut commands: Commands, site: Res<Site>, asset_server: Res<AssetServer>) {
     let m = &site.0;
-    let min = m.world_min();
-    let max = m.world_max();
-    let size = max - min;
-    let diag = size.length();
+    let diag = (m.world_max() - m.world_min()).length();
+    let rig = CameraRig::from_manifest(m);
 
-    let controller = Relief3dController::from_manifest(m);
+    commands.insert_resource(DemHandle(asset_server.load(m.dem.path.clone())));
 
-    let material = materials.add(Terrain3dMaterial {
-        params: Terrain3dParams {
-            dem_world_min: min,
-            dem_world_size: size,
-            elev_min: m.dem.elev_min_m as f32,
-            elev_max: m.dem.elev_max_m as f32,
-            // Seed from the manifest's sun (same source HillshadeState uses); the live
-            // angles then flow in via `sync_terrain_uniforms` once that resource exists.
-            sun_azimuth: m.sun.azimuth_deg.to_radians(),
-            sun_altitude: m.sun.altitude_deg.to_radians(),
-            vexag: controller.vexag,
-            surface_mode: controller.surface_mode,
-        },
-        dem: asset_server.load(m.dem.path.clone()),
-        // The zoom-0 tile is a single image covering the whole site (the drape texture).
-        imagery: asset_server.load(tile_path(&m.site, TileCoord::new(0, 0, 0))),
-    });
-
-    commands.spawn((
-        Mesh3d(meshes.add(build_grid(min, max, GRID_QUADS))),
-        MeshMaterial3d(material.clone()),
-        Transform::default(),
-        RenderLayers::layer(TERRAIN_LAYER),
-        // Heights are displaced in the vertex shader, so the CPU-side AABB (a flat
-        // plane at y = 0) doesn't reflect the real bounds — skip frustum culling.
-        NoFrustumCulling,
-    ));
-
+    // Main perspective scene camera.
     commands.spawn((
         Camera3d::default(),
-        Camera {
-            is_active: false,
-            order: 1,
-            ..default()
-        },
+        Camera { order: 0, ..default() },
         Projection::Perspective(PerspectiveProjection {
-            fov: 50f32.to_radians(),
-            near: (diag * 0.001).max(10.0),
-            far: diag * 3.0,
+            fov: rig.fov,
+            near: (diag * 0.001).max(5.0),
+            far: diag * 4.0,
             ..default()
         }),
-        controller.transform(),
-        RenderLayers::layer(TERRAIN_LAYER),
-        Relief3dCamera,
+        rig.transform(),
+        MainCamera,
     ));
 
-    // A dedicated, always-active camera hosts the primary egui context and draws the
-    // overlay last (highest `order`, no clear) over whichever scene camera is active.
-    // Keeping the context on one stable, initialized camera avoids bevy_egui's
-    // "No fonts loaded" panic that hits when a context is created/relocated mid-frame.
+    // Dedicated, always-active egui camera (highest order, no clear) — keeps the egui
+    // context on one stable, initialized camera (avoids bevy_egui "No fonts loaded").
     commands.spawn((
         Camera3d::default(),
         Camera {
@@ -244,33 +170,110 @@ fn setup_terrain3d(
         PrimaryEguiContext,
     ));
 
-    commands.insert_resource(controller);
-    commands.insert_resource(Terrain3dHandle(material));
+    // The sun: a directional light with cascaded shadow maps. Direction is set each
+    // frame from HillshadeState; cast shadows give real crater self-shadowing.
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 32_000.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        CascadeShadowConfigBuilder {
+            num_cascades: 4,
+            maximum_distance: diag,
+            ..default()
+        }
+        .build(),
+        Transform::from_translation(Vec3::ZERO)
+            .looking_to(-sun_dir_3d(m.sun.azimuth_deg, m.sun.altitude_deg), Vec3::Y),
+        SunLight,
+    ));
+
+    // A little ambient so shadowed crater floors aren't pure black (soft PSR fill).
+    commands.insert_resource(GlobalAmbientLight {
+        color: Color::srgb(0.6, 0.65, 0.8),
+        brightness: 400.0,
+        ..default()
+    });
+
+    commands.insert_resource(rig);
 }
 
-/// Hand-rolled subdivided plane over the world bbox, in the XZ plane (y = 0; height
-/// comes from the vertex shader). Row 0 = north (max_y) so it lines up with the DEM's
-/// top-left UV origin. Front faces point +Y (up) under the default CCW winding.
-fn build_grid(min: Vec2, max: Vec2, n: u32) -> Mesh {
-    let verts = ((n + 1) * (n + 1)) as usize;
+/// Sun unit vector (ground → sun) in 3D: east = +x, up = +y, north = -z.
+fn sun_dir_3d(azimuth_deg: f32, altitude_deg: f32) -> Vec3 {
+    let az = azimuth_deg.to_radians();
+    let alt = altitude_deg.to_radians();
+    let ca = alt.cos();
+    Vec3::new(ca * az.sin(), alt.sin(), -ca * az.cos())
+}
+
+/// Decode the DEM into [`DemHeights`] once the image asset is available (runs until it
+/// succeeds, then idles because the resource exists).
+fn build_dem_cache(
+    mut commands: Commands,
+    site: Res<Site>,
+    images: Res<Assets<Image>>,
+    dem: Res<DemHandle>,
+    existing: Option<Res<DemHeights>>,
+) {
+    if existing.is_some() {
+        return;
+    }
+    let Some(img) = images.get(&dem.0) else {
+        return;
+    };
+    let Some(bytes) = img.data.as_ref() else {
+        return;
+    };
+    let size = img.texture_descriptor.size;
+    let (w, h) = (size.width as usize, size.height as usize);
+    if bytes.len() < w * h * 2 {
+        return;
+    }
+    // R16Uint, little-endian, one channel.
+    let samples: Vec<u16> = bytes
+        .chunks_exact(2)
+        .take(w * h)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+
+    let m = &site.0;
+    commands.insert_resource(DemHeights {
+        samples,
+        width: w,
+        height: h,
+        world_min: m.world_min(),
+        world_size: m.world_max() - m.world_min(),
+        elev_min: m.dem.elev_min_m as f32,
+        elev_range: (m.dem.elev_max_m - m.dem.elev_min_m) as f32,
+    });
+}
+
+/// Build a CPU-displaced terrain patch over a tile's world bbox, with local `[0,1]` UVs
+/// for the tile texture and smooth normals computed from the displaced geometry. Edge
+/// vertices land on exact tile boundaries and sample the shared DEM, so adjacent
+/// same-zoom patches meet without cracks.
+pub fn build_patch_mesh(dem: &DemHeights, min: Vec2, max: Vec2, res: u32, vexag: f32) -> Mesh {
+    let verts = ((res + 1) * (res + 1)) as usize;
     let mut positions = Vec::with_capacity(verts);
-    let mut normals = Vec::with_capacity(verts);
-    for j in 0..=n {
-        let fz = j as f32 / n as f32;
-        // j: 0 → north (max_y), n → south (min_y). World y maps to 3D -z.
-        let wy = max.y + (min.y - max.y) * fz;
-        for i in 0..=n {
-            let fx = i as f32 / n as f32;
+    let mut uvs = Vec::with_capacity(verts);
+    for j in 0..=res {
+        let fy = j as f32 / res as f32;
+        // j: 0 → north (max_y, image top), res → south (min_y).
+        let wy = max.y + (min.y - max.y) * fy;
+        for i in 0..=res {
+            let fx = i as f32 / res as f32;
             let wx = min.x + (max.x - min.x) * fx;
-            positions.push([wx, 0.0, -wy]);
-            normals.push([0.0, 1.0, 0.0]);
+            let h = dem.height_at_world(Vec2::new(wx, wy)) * vexag;
+            positions.push([wx, h, -wy]);
+            uvs.push([fx, fy]);
         }
     }
 
-    let stride = n + 1;
-    let mut indices = Vec::with_capacity((n * n * 6) as usize);
-    for j in 0..n {
-        for i in 0..n {
+    let stride = res + 1;
+    let mut indices = Vec::with_capacity((res * res * 6) as usize);
+    for j in 0..res {
+        for i in 0..res {
             let a = j * stride + i;
             let b = a + 1;
             let c = a + stride;
@@ -279,54 +282,30 @@ fn build_grid(min: Vec2, max: Vec2, n: u32) -> Mesh {
         }
     }
 
-    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_indices(Indices::U32(indices))
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(indices));
+    mesh.compute_smooth_normals();
+    mesh
 }
 
-/// **`T`** swaps between the 2D map and the 3D relief.
-fn toggle_view_mode(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<ViewMode>) {
-    if keys.just_pressed(KeyCode::KeyT) {
-        *mode = match *mode {
-            ViewMode::Map2d => ViewMode::Relief3d,
-            ViewMode::Relief3d => ViewMode::Map2d,
-        };
-    }
-}
-
-/// On a [`ViewMode`] change (and once at startup), activate exactly one scene camera.
-/// egui lives on its own always-active camera, so nothing here touches egui.
-///
-/// The `Without<Relief3dCamera>` filter is load-bearing: two `&mut Camera` queries must
-/// be provably disjoint or Bevy panics (the 3D camera also has a `Camera`).
-fn apply_view_mode(
-    mode: Res<ViewMode>,
-    mut cam2d: Query<&mut Camera, (With<Camera2d>, Without<Relief3dCamera>)>,
-    mut cam3d: Query<&mut Camera, With<Relief3dCamera>>,
-) {
-    if !mode.is_changed() {
-        return;
-    }
-    let relief = *mode == ViewMode::Relief3d;
-    if let Ok(mut c) = cam2d.single_mut() {
-        c.is_active = !relief;
-    }
-    if let Ok(mut c) = cam3d.single_mut() {
-        c.is_active = relief;
-    }
-}
-
-/// Orbit the 3D camera: left-drag rotates (yaw/pitch), wheel changes distance. Yields
-/// the pointer to egui (same guard as `camera_control`).
-fn relief3d_orbit(
+/// Orbit the camera: left-drag rotates (yaw/pitch), wheel dollies. Yields the pointer
+/// to egui. Skips while the scripted flythrough owns the camera.
+fn orbit_camera(
     mut contexts: EguiContexts,
+    flythrough: Res<crate::flythrough::Flythrough>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
-    mut ctrl: ResMut<Relief3dController>,
-    mut cam: Query<&mut Transform, With<Relief3dCamera>>,
+    mut rig: ResMut<CameraRig>,
+    mut cam: Query<&mut Transform, With<MainCamera>>,
 ) -> Result {
+    if flythrough.playing {
+        motion.clear();
+        wheel.clear();
+        return Ok(());
+    }
     if let Ok(ctx) = contexts.ctx_mut()
         && ctx.wants_pointer_input()
     {
@@ -355,36 +334,26 @@ fn relief3d_orbit(
     }
 
     if dyaw != 0.0 || dpitch != 0.0 || scroll != 0.0 {
-        ctrl.yaw += dyaw;
-        // Clamp pitch away from the poles to avoid gimbal flip and sub-horizon views.
-        ctrl.pitch = (ctrl.pitch + dpitch).clamp(5f32.to_radians(), 85f32.to_radians());
+        rig.yaw += dyaw;
+        rig.pitch = (rig.pitch + dpitch).clamp(5f32.to_radians(), 85f32.to_radians());
         if scroll != 0.0 {
-            ctrl.distance =
-                (ctrl.distance * (1.0 - scroll * ZOOM_SPEED)).clamp(ctrl.min_distance, ctrl.max_distance);
+            rig.distance = (rig.distance * (1.0 - scroll * ZOOM_SPEED)).clamp(rig.min_distance, rig.max_distance);
         }
         if let Ok(mut t) = cam.single_mut() {
-            *t = ctrl.transform();
+            *t = rig.transform();
         }
     }
 
     Ok(())
 }
 
-/// Push the live sun angles (shared [`HillshadeState`]) + vexag + surface mode into the
-/// material uniforms when either source changes.
-fn sync_terrain_uniforms(
-    state: Res<HillshadeState>,
-    ctrl: Res<Relief3dController>,
-    handle: Res<Terrain3dHandle>,
-    mut materials: ResMut<Assets<Terrain3dMaterial>>,
-) {
-    if !state.is_changed() && !ctrl.is_changed() {
+/// Point the sun light per the shared [`HillshadeState`] angles when they change.
+fn update_sun(state: Res<HillshadeState>, mut light: Query<&mut Transform, With<SunLight>>) {
+    if !state.is_changed() {
         return;
     }
-    if let Some(mat) = materials.get_mut(&handle.0) {
-        mat.params.sun_azimuth = state.sun_azimuth_deg.to_radians();
-        mat.params.sun_altitude = state.sun_altitude_deg.to_radians();
-        mat.params.vexag = ctrl.vexag;
-        mat.params.surface_mode = ctrl.surface_mode;
+    if let Ok(mut t) = light.single_mut() {
+        *t = Transform::from_translation(Vec3::ZERO)
+            .looking_to(-sun_dir_3d(state.sun_azimuth_deg, state.sun_altitude_deg), Vec3::Y);
     }
 }

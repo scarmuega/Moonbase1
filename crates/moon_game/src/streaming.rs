@@ -25,7 +25,7 @@ use bevy::window::PrimaryWindow;
 use moon_data::{tile_path, tile_to_world_min, tile_world_size, TileCoord};
 
 use crate::camera::select_lod;
-use crate::terrain3d::{build_patch_mesh, CameraRig, DemHeights, PATCH_RES};
+use crate::terrain3d::{build_patch_mesh, CameraRig, DemHeights, TerrainLook, PATCH_RES};
 use crate::Site;
 
 /// How often the visible-set diff runs (the camera changes the tile set far less than
@@ -53,6 +53,7 @@ pub struct Streamer {
     active_zoom: u8,
     queue: VecDeque<TileCoord>,
     last_vexag: f32,
+    last_imagery: bool,
 }
 
 impl Streamer {
@@ -62,6 +63,7 @@ impl Streamer {
             active_zoom,
             queue: VecDeque::new(),
             last_vexag: f32::NAN,
+            last_imagery: true,
         }
     }
 }
@@ -71,11 +73,13 @@ impl Streamer {
 struct StreamedTile(#[allow(dead_code)] TileCoord);
 
 /// Pick the LOD, diff the desired vs. resident set, despawn stale, queue spawns; and
-/// rebuild everything when the vertical exaggeration changes.
+/// rebuild everything when the vertical exaggeration or imagery toggle changes.
+#[allow(clippy::too_many_arguments)]
 pub fn stream_tiles(
     time: Res<Time>,
     site: Res<Site>,
     rig: Res<CameraRig>,
+    look: Res<TerrainLook>,
     mut streamer: ResMut<Streamer>,
     mut loaded: ResMut<LoadedTiles>,
     mut commands: Commands,
@@ -89,13 +93,14 @@ pub fn stream_tiles(
     };
     let manifest = &site.0;
 
-    // Vexag changed → the displaced geometry is stale; drop it all and rebuild.
-    if streamer.last_vexag != rig.vexag {
+    // Vexag changed (geometry stale) or imagery toggled (material stale) → rebuild all.
+    if streamer.last_vexag != rig.vexag || streamer.last_imagery != look.imagery {
         for (_, e) in loaded.map.drain() {
             commands.entity(e).despawn();
         }
         streamer.queue.clear();
         streamer.last_vexag = rig.vexag;
+        streamer.last_imagery = look.imagery;
     }
 
     // --- LOD selection with hysteresis (deadband around the mpp boundary) ---
@@ -148,6 +153,7 @@ pub fn stream_tiles(
 pub fn drain_spawn_queue(
     site: Res<Site>,
     rig: Res<CameraRig>,
+    look: Res<TerrainLook>,
     dem: Option<Res<DemHeights>>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -172,12 +178,23 @@ pub fn drain_spawn_queue(
         let max = min + Vec2::splat(size);
 
         let mesh = meshes.add(build_patch_mesh(&dem, min, max, PATCH_RES, rig.vexag));
-        let material = materials.add(StandardMaterial {
-            base_color: IMAGERY_TINT,
-            base_color_texture: Some(asset_server.load(tile_path(&manifest.site, c))),
-            perceptual_roughness: 1.0,
-            metallic: 0.0,
-            ..default()
+        // Imagery on → draped tile texture; off → plain warm-gray regolith so the sun +
+        // shadows render the pure relief (the Tier-1 look).
+        let material = materials.add(if look.imagery {
+            StandardMaterial {
+                base_color: IMAGERY_TINT,
+                base_color_texture: Some(asset_server.load(tile_path(&manifest.site, c))),
+                perceptual_roughness: 1.0,
+                metallic: 0.0,
+                ..default()
+            }
+        } else {
+            StandardMaterial {
+                base_color: Color::srgb(0.82, 0.79, 0.74),
+                perceptual_roughness: 1.0,
+                metallic: 0.0,
+                ..default()
+            }
         });
         let entity = commands
             .spawn((Mesh3d(mesh), MeshMaterial3d(material), StreamedTile(c)))

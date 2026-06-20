@@ -10,7 +10,7 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::hillshade::HillshadeState;
 use crate::streaming::LoadedTiles;
-use crate::terrain3d::CameraRig;
+use crate::terrain3d::{CameraRig, TerrainLook};
 
 /// Whether the egui overlay is drawn. `F1` toggles it — off for clean hero frames.
 #[derive(Resource)]
@@ -22,6 +22,7 @@ impl Default for ShowUi {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn debug_ui(
     mut contexts: EguiContexts,
     keys: Res<ButtonInput<KeyCode>>,
@@ -30,6 +31,7 @@ pub fn debug_ui(
     loaded: Res<LoadedTiles>,
     mut sun: ResMut<HillshadeState>,
     mut rig: ResMut<CameraRig>,
+    mut look: ResMut<TerrainLook>,
 ) -> Result {
     if keys.just_pressed(KeyCode::F1) {
         show.0 = !show.0;
@@ -57,6 +59,13 @@ pub fn debug_ui(
         ui.checkbox(&mut sun.sweeping, "sun sweep (G)");
         ui.add(egui::Slider::new(&mut sun.sun_azimuth_deg, 0.0..=360.0).text("sun azimuth°"));
         ui.add(egui::Slider::new(&mut sun.sun_altitude_deg, 0.0..=90.0).text("sun altitude°"));
+
+        ui.separator();
+        ui.label("look");
+        ui.checkbox(&mut look.imagery, "drape imagery (off = relief)");
+        ui.checkbox(&mut look.tonemap, "filmic tonemapping");
+        ui.add(egui::Slider::new(&mut look.sun_lux, 5_000.0..=150_000.0).text("sun lux"));
+        ui.add(egui::Slider::new(&mut look.ambient, 0.0..=10_000.0).text("ambient"));
 
         ui.separator();
         ui.label("drag orbit · wheel zoom · F flythrough · G sun sweep · F1 hide UI");

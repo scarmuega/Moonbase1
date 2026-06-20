@@ -17,13 +17,15 @@
 //! Coordinate mapping (fixed in Tier 1): world `(x, y)` with +Y = north → Bevy 3D
 //! `(x, height·vexag, -y)`; the ground is the XZ plane and +Y is up.
 
+use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
+use bevy::camera::Exposure;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::image::Image;
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use bevy::asset::RenderAssetUsages;
 use bevy_egui::{EguiContexts, PrimaryEguiContext};
 use moon_data::SiteManifest;
 
@@ -115,6 +117,32 @@ impl DemHeights {
     }
 }
 
+/// Live look controls (egui-tunable). Defaults aim for the Tier-1 aesthetic: a direct,
+/// untonemapped warm Lambertian with strong relief contrast and dark shadows.
+#[derive(Resource)]
+pub struct TerrainLook {
+    /// Drape the streamed imagery (true) or show plain warm-gray regolith (false, the
+    /// pure Tier-1 relief look — now with real cast shadows).
+    pub imagery: bool,
+    /// Directional sun strength (lux). ~100k = direct sunlight (paired with ev100 15).
+    pub sun_lux: f32,
+    /// Ambient fill strength, so shadowed crater floors aren't pure black.
+    pub ambient: f32,
+    /// Filmic tonemapping on (PBR look) or off (Tier-1 direct look).
+    pub tonemap: bool,
+}
+
+impl Default for TerrainLook {
+    fn default() -> Self {
+        Self {
+            imagery: true,
+            sun_lux: 100_000.0,
+            ambient: 2_500.0,
+            tonemap: false,
+        }
+    }
+}
+
 /// Handle to the DEM image, used to build [`DemHeights`] once it finishes loading.
 #[derive(Resource)]
 struct DemHandle(Handle<Image>);
@@ -132,7 +160,7 @@ pub struct Terrain3dPlugin;
 impl Plugin for Terrain3dPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, (build_dem_cache, orbit_camera, update_sun));
+            .add_systems(Update, (build_dem_cache, orbit_camera, update_sun, apply_look));
     }
 }
 
@@ -140,10 +168,13 @@ fn setup(mut commands: Commands, site: Res<Site>, asset_server: Res<AssetServer>
     let m = &site.0;
     let diag = (m.world_max() - m.world_min()).length();
     let rig = CameraRig::from_manifest(m);
+    let look = TerrainLook::default();
 
     commands.insert_resource(DemHandle(asset_server.load(m.dem.path.clone())));
 
-    // Main perspective scene camera.
+    // Main perspective scene camera. Exposure is matched to the sun (ev100 15 ≈ direct
+    // sunlight) so values land in [0,1]; tonemapping starts off for the Tier-1 direct
+    // Lambertian look (the BLENDER default exposure would massively overexpose 100k lux).
     commands.spawn((
         Camera3d::default(),
         Camera { order: 0, ..default() },
@@ -153,6 +184,8 @@ fn setup(mut commands: Commands, site: Res<Site>, asset_server: Res<AssetServer>
             far: diag * 4.0,
             ..default()
         }),
+        Exposure::SUNLIGHT,
+        if look.tonemap { Tonemapping::TonyMcMapface } else { Tonemapping::None },
         rig.transform(),
         MainCamera,
     ));
@@ -174,7 +207,7 @@ fn setup(mut commands: Commands, site: Res<Site>, asset_server: Res<AssetServer>
     // frame from HillshadeState; cast shadows give real crater self-shadowing.
     commands.spawn((
         DirectionalLight {
-            illuminance: 32_000.0,
+            illuminance: look.sun_lux,
             shadows_enabled: true,
             ..default()
         },
@@ -189,14 +222,16 @@ fn setup(mut commands: Commands, site: Res<Site>, asset_server: Res<AssetServer>
         SunLight,
     ));
 
-    // A little ambient so shadowed crater floors aren't pure black (soft PSR fill).
+    // A little neutral-warm ambient so shadowed crater floors aren't pure black (soft
+    // PSR fill) — neutral, not blue, to keep the warm regolith mood.
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.6, 0.65, 0.8),
-        brightness: 400.0,
+        color: Color::srgb(1.0, 0.97, 0.92),
+        brightness: look.ambient,
         ..default()
     });
 
     commands.insert_resource(rig);
+    commands.insert_resource(look);
 }
 
 /// Sun unit vector (ground → sun) in 3D: east = +x, up = +y, north = -z.
@@ -355,5 +390,31 @@ fn update_sun(state: Res<HillshadeState>, mut light: Query<&mut Transform, With<
     if let Ok(mut t) = light.single_mut() {
         *t = Transform::from_translation(Vec3::ZERO)
             .looking_to(-sun_dir_3d(state.sun_azimuth_deg, state.sun_altitude_deg), Vec3::Y);
+    }
+}
+
+/// Apply the live [`TerrainLook`] knobs (sun strength, ambient, tonemapping) when they
+/// change. The imagery toggle is handled by the streamer (it rebuilds the patches).
+fn apply_look(
+    look: Res<TerrainLook>,
+    mut sun: Query<&mut DirectionalLight, With<SunLight>>,
+    ambient: Option<ResMut<GlobalAmbientLight>>,
+    mut tonemapping: Query<&mut Tonemapping, With<MainCamera>>,
+) {
+    if !look.is_changed() {
+        return;
+    }
+    if let Ok(mut light) = sun.single_mut() {
+        light.illuminance = look.sun_lux;
+    }
+    if let Some(mut ambient) = ambient {
+        ambient.brightness = look.ambient;
+    }
+    if let Ok(mut tm) = tonemapping.single_mut() {
+        *tm = if look.tonemap {
+            Tonemapping::TonyMcMapface
+        } else {
+            Tonemapping::None
+        };
     }
 }

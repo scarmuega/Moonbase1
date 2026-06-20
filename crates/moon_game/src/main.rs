@@ -11,11 +11,12 @@ mod debug_ui;
 mod flythrough;
 mod hillshade;
 mod streaming;
+mod terrain3d;
 
 use bevy::asset::AssetPlugin;
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
-use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 use moon_data::SiteManifest;
 
 use camera::{camera_control, select_lod, CameraController};
@@ -23,6 +24,7 @@ use debug_ui::{debug_ui, ShowUi};
 use flythrough::{play_flythrough, Flythrough};
 use hillshade::HillshadePlugin;
 use streaming::{drain_spawn_queue, stream_tiles, LoadedTiles, Streamer};
+use terrain3d::{in_map2d, Terrain3dPlugin};
 
 // Bevy resolves assets via BEVY_ASSET_ROOT → CARGO_MANIFEST_DIR → exe-dir, never
 // the cwd. In this workspace `cargo run -p moon_game` sets CARGO_MANIFEST_DIR to
@@ -65,6 +67,7 @@ fn main() {
         .add_plugins(EguiPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(HillshadePlugin)
+        .add_plugins(Terrain3dPlugin)
         .insert_resource(controller)
         .insert_resource(Site(manifest))
         .init_resource::<LoadedTiles>()
@@ -73,10 +76,14 @@ fn main() {
         .insert_resource(Streamer::new(initial_zoom))
         .add_systems(Startup, setup)
         // `camera_control` runs first; `play_flythrough` overrides it while a scripted
-        // path is playing; streaming then reads the resulting camera transform.
+        // path is playing; streaming then reads the resulting camera transform. The
+        // whole 2D chain pauses while the 3D relief view is active (Tier 1), so the 2D
+        // camera stays frozen and unchanged when toggled back.
         .add_systems(
             Update,
-            (camera_control, play_flythrough, stream_tiles, drain_spawn_queue).chain(),
+            (camera_control, play_flythrough, stream_tiles, drain_spawn_queue)
+                .chain()
+                .run_if(in_map2d),
         )
         // ⚠️ egui UI must run on EguiPrimaryContextPass, not Update (multi-pass mode).
         .add_systems(EguiPrimaryContextPass, debug_ui)
@@ -93,6 +100,12 @@ fn load_manifest(path: &str) -> SiteManifest {
 
 /// Spawn the 2D camera. Tiles are owned by the streaming systems (plan 04),
 /// which load and unload them by viewport on the first throttle pass.
-fn setup(mut commands: Commands) {
+///
+/// With multiple cameras (2D scene, 3D scene, and the dedicated egui camera), egui's
+/// auto-creation of a primary context on the "first found" camera is order-dependent,
+/// so we disable it; `terrain3d` spawns one always-active camera that owns the primary
+/// egui context explicitly.
+fn setup(mut commands: Commands, mut egui_settings: ResMut<EguiGlobalSettings>) {
+    egui_settings.auto_create_primary_context = false;
     commands.spawn(Camera2d);
 }

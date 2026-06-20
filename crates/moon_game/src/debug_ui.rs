@@ -12,6 +12,7 @@ use bevy_egui::{egui, EguiContexts};
 use crate::camera::{select_lod, CameraController};
 use crate::hillshade::HillshadeState;
 use crate::streaming::LoadedTiles;
+use crate::terrain3d::{Relief3dController, ViewMode};
 use crate::Site;
 
 /// Whether the egui overlay is drawn. `F1` toggles it — off for clean hero frames,
@@ -34,6 +35,8 @@ pub fn debug_ui(
     site: Res<Site>,
     loaded: Res<LoadedTiles>,
     mut hillshade: ResMut<HillshadeState>,
+    mut mode: ResMut<ViewMode>,
+    mut relief: ResMut<Relief3dController>,
     camera: Query<(&Transform, &Projection), With<Camera2d>>,
 ) -> Result {
     if keys.just_pressed(KeyCode::F1) {
@@ -57,14 +60,39 @@ pub fn debug_ui(
         _ => (Vec2::ZERO, 0.0),
     };
     let lod = select_lod(&site.0, scale);
+    let in_3d = *mode == ViewMode::Relief3d;
 
     egui::Window::new("camera").show(ctx, |ui| {
         ui.label(format!("FPS: {fps:.0}"));
-        ui.label(format!("pos: ({:.0}, {:.0}) m", pos.x, pos.y));
-        ui.label(format!("scale: {scale:.2} m/px"));
-        ui.label(format!("target: {:.2} m/px", controller.target_scale));
-        ui.label(format!("LOD zoom: {lod}"));
-        ui.label(format!("tiles: {}", loaded.map.len()));
+
+        // View toggle mirrors the `T` key.
+        let mut want_3d = in_3d;
+        if ui.checkbox(&mut want_3d, "3D relief (T)").changed() {
+            *mode = if want_3d {
+                ViewMode::Relief3d
+            } else {
+                ViewMode::Map2d
+            };
+        }
+
+        if in_3d {
+            ui.label(format!("pitch: {:.0}°", relief.pitch.to_degrees()));
+            ui.label(format!("yaw: {:.0}°", relief.yaw.to_degrees().rem_euclid(360.0)));
+            ui.label(format!("distance: {:.0} m", relief.distance));
+            ui.add(egui::Slider::new(&mut relief.vexag, 1.0..=8.0).text("vertical exag."));
+            ui.horizontal(|ui| {
+                ui.label("surface:");
+                ui.selectable_value(&mut relief.surface_mode, 0u32, "relief");
+                ui.selectable_value(&mut relief.surface_mode, 1u32, "imagery");
+                ui.selectable_value(&mut relief.surface_mode, 2u32, "ramp");
+            });
+        } else {
+            ui.label(format!("pos: ({:.0}, {:.0}) m", pos.x, pos.y));
+            ui.label(format!("scale: {scale:.2} m/px"));
+            ui.label(format!("target: {:.2} m/px", controller.target_scale));
+            ui.label(format!("LOD zoom: {lod}"));
+            ui.label(format!("tiles: {}", loaded.map.len()));
+        }
 
         ui.separator();
         ui.checkbox(&mut hillshade.visible, "hillshade (H)");
@@ -80,7 +108,11 @@ pub fn debug_ui(
             egui::Slider::new(&mut hillshade.sun_altitude_deg, 0.0..=90.0).text("sun altitude°"),
         );
         ui.separator();
-        ui.label("F flythrough · F1 hide UI · drag pan · wheel zoom");
+        if in_3d {
+            ui.label("T 2D map · drag orbit · wheel zoom · G sun sweep · F1 hide UI");
+        } else {
+            ui.label("T 3D relief · F flythrough · F1 hide UI · drag pan · wheel zoom");
+        }
     });
 
     Ok(())

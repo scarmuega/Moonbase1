@@ -1,4 +1,4 @@
-//! egui debug overlay: FPS, camera framing, sun controls, vertical exaggeration.
+//! egui debug overlay: FPS, camera framing, sun controls, vertical exaggeration, dust.
 //!
 //! ⚠️ This system MUST be scheduled on `EguiPrimaryContextPass` (see `main.rs`), not
 //! `Update` — under bevy_egui 0.39's multi-pass mode a UI system on `Update` silently
@@ -9,7 +9,6 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
 use crate::hillshade::HillshadeState;
-use crate::streaming::LoadedTiles;
 use crate::terrain3d::{CameraRig, TerrainLook};
 
 /// Whether the egui overlay is drawn. `F1` toggles it — off for clean hero frames.
@@ -22,13 +21,11 @@ impl Default for ShowUi {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn debug_ui(
     mut contexts: EguiContexts,
     keys: Res<ButtonInput<KeyCode>>,
     mut show: ResMut<ShowUi>,
     diagnostics: Res<DiagnosticsStore>,
-    loaded: Res<LoadedTiles>,
     mut sun: ResMut<HillshadeState>,
     mut rig: ResMut<CameraRig>,
     mut look: ResMut<TerrainLook>,
@@ -52,20 +49,13 @@ pub fn debug_ui(
         ui.label(format!("pitch: {:.0}°", rig.pitch.to_degrees()));
         ui.label(format!("yaw: {:.0}°", rig.yaw.to_degrees().rem_euclid(360.0)));
         ui.label(format!("distance: {:.0} m", rig.distance));
-        ui.label(format!("patches: {}", loaded.map.len()));
 
         ui.separator();
         ui.add(egui::Slider::new(&mut rig.vexag, 1.0..=8.0).text("vertical exag."));
+        ui.add(egui::Slider::new(&mut look.detail, 0.0..=1.0).text("dust"));
         ui.checkbox(&mut sun.sweeping, "sun sweep (G)");
         ui.add(egui::Slider::new(&mut sun.sun_azimuth_deg, 0.0..=360.0).text("sun azimuth°"));
         ui.add(egui::Slider::new(&mut sun.sun_altitude_deg, 0.0..=90.0).text("sun altitude°"));
-
-        ui.separator();
-        ui.label("look");
-        ui.checkbox(&mut look.imagery, "drape imagery (off = relief)");
-        ui.checkbox(&mut look.tonemap, "filmic tonemapping");
-        ui.add(egui::Slider::new(&mut look.sun_lux, 5_000.0..=150_000.0).text("sun lux"));
-        ui.add(egui::Slider::new(&mut look.ambient, 0.0..=10_000.0).text("ambient"));
 
         ui.separator();
         ui.label("drag orbit · wheel zoom · F flythrough · G sun sweep · F1 hide UI");

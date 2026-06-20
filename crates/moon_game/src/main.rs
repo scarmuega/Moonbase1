@@ -1,17 +1,15 @@
 //! `moon_game` — the Bevy 0.18 runtime. Boots the app, loads the site manifest, and
-//! presents the baked site as **real 3D terrain** under a perspective camera (Sprint
-//! 02): the LOLA DEM becomes displaced geometry, the streamed LOD imagery is draped onto
-//! it as textured patches, and a `DirectionalLight` sun casts shadows. An egui overlay
-//! shows live framing, FPS, and the sun / vertical-exaggeration controls.
+//! presents the baked site as **real 3D lunar terrain** under a perspective camera
+//! (Sprint 02): the LOLA DEM becomes displaced geometry, shaded per-fragment as dusty
+//! regolith relief (no streamed imagery). An egui overlay shows live framing, FPS, and
+//! the sun / vertical-exaggeration / surface controls.
 //!
 //! Run from anywhere — the asset root is pinned to the workspace `assets/`:
 //! `cargo run -p moon_game` (or `MOON_SITE=shackleton cargo run -p moon_game`).
 
-mod camera;
 mod debug_ui;
 mod flythrough;
 mod hillshade;
-mod streaming;
 mod terrain3d;
 
 use bevy::asset::AssetPlugin;
@@ -23,7 +21,6 @@ use moon_data::SiteManifest;
 use debug_ui::{debug_ui, ShowUi};
 use flythrough::{play_flythrough, Flythrough};
 use hillshade::HillshadePlugin;
-use streaming::{drain_spawn_queue, stream_tiles, LoadedTiles, Streamer};
 use terrain3d::Terrain3dPlugin;
 
 // Bevy resolves assets via BEVY_ASSET_ROOT → CARGO_MANIFEST_DIR → exe-dir, never
@@ -67,22 +64,15 @@ fn main() {
         .add_plugins(HillshadePlugin)
         .add_plugins(Terrain3dPlugin)
         .insert_resource(Site(manifest))
-        .init_resource::<LoadedTiles>()
         .init_resource::<Flythrough>()
         .init_resource::<ShowUi>()
-        // The active zoom self-corrects on the first streaming pass from the camera's
-        // ground-sample distance; seed coarse.
-        .insert_resource(Streamer::new(0))
         // egui auto-assigns its primary context to the "first found" camera, which is
-        // order-dependent with our 3 cameras; disable it (PreStartup, before any camera
+        // order-dependent with our 2 cameras; disable it (PreStartup, before any camera
         // spawns) so `terrain3d`'s dedicated egui camera owns it explicitly.
         .add_systems(PreStartup, disable_egui_auto_context)
         // `play_flythrough` (when playing) and `orbit_camera` (in Terrain3dPlugin) drive
-        // the camera; streaming then reads the resulting rig.
-        .add_systems(
-            Update,
-            (play_flythrough, stream_tiles, drain_spawn_queue).chain(),
-        )
+        // the camera.
+        .add_systems(Update, play_flythrough)
         // ⚠️ egui UI must run on EguiPrimaryContextPass, not Update (multi-pass mode).
         .add_systems(EguiPrimaryContextPass, debug_ui)
         .run();

@@ -34,9 +34,9 @@ const UI_LAYER: usize = 2;
 /// and `vexag` stays a live uniform (no rebuilds).
 const MAX_GRID_QUADS: u32 = 2048;
 /// Default vertical exaggeration; the relief at these poles is gentle. Slider 1–8.
-const DEFAULT_VEXAG: f32 = 2.5;
+const DEFAULT_VEXAG: f32 = 1.5;
 /// Default synthetic sub-DEM relief strength. Slider 0–2.
-const DEFAULT_SYNTH: f32 = 0.7;
+const DEFAULT_SYNTH: f32 = 0.4;
 /// Orbit drag sensitivity (radians per pixel of mouse motion).
 const ORBIT_SENS: f32 = 0.005;
 /// Fraction of `distance` changed per wheel "line" of scroll.

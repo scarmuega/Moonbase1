@@ -27,9 +27,12 @@ use crate::Site;
 /// The egui camera renders on an empty layer (no scene geometry) — it exists only to
 /// host the primary egui context and draw the overlay on top of the scene camera.
 const UI_LAYER: usize = 2;
-/// Grid resolution of the terrain plane (quads per side). The per-fragment DEM normal
-/// carries fine detail; this only needs to be fine enough for the silhouette.
-const GRID_QUADS: u32 = 768;
+/// Cap on terrain grid resolution (quads per side). The mesh is matched to the DEM's
+/// native grid up to this cap so crater rims read in the *silhouette* (the per-fragment
+/// normal already carries shading detail). Capped to bound vertex memory: 2048² ≈ 4.2 M
+/// verts. The grid is flat and displaced on the GPU, so this is a one-time startup cost
+/// and `vexag` stays a live uniform (no rebuilds).
+const MAX_GRID_QUADS: u32 = 2048;
 /// Default vertical exaggeration; the relief at these poles is gentle. Slider 1–8.
 const DEFAULT_VEXAG: f32 = 2.5;
 /// Default synthetic dust strength. Slider 0–1.
@@ -172,8 +175,11 @@ fn setup(
         dem: asset_server.load(m.dem.path.clone()),
     });
 
+    // Match the mesh to the DEM's native grid (capped) so the silhouette is as detailed
+    // as the data allows.
+    let quads = m.dem.width.max(m.dem.height).min(MAX_GRID_QUADS);
     commands.spawn((
-        Mesh3d(meshes.add(build_grid(min, max, GRID_QUADS))),
+        Mesh3d(meshes.add(build_grid(min, max, quads))),
         MeshMaterial3d(material.clone()),
         Transform::default(),
     ));
@@ -211,10 +217,11 @@ fn setup(
 
 /// Hand-rolled subdivided plane over the world bbox, in the XZ plane (y = 0; height
 /// comes from the vertex shader). Front faces point +Y under the default CCW winding.
+/// Only positions are stored — the fragment shader derives its own normal from the DEM,
+/// so the mesh normal attribute is omitted (halves the vertex memory).
 fn build_grid(min: Vec2, max: Vec2, n: u32) -> Mesh {
     let verts = ((n + 1) * (n + 1)) as usize;
     let mut positions = Vec::with_capacity(verts);
-    let mut normals = Vec::with_capacity(verts);
     for j in 0..=n {
         let fz = j as f32 / n as f32;
         let wy = max.y + (min.y - max.y) * fz; // j: 0 → north (max_y)
@@ -222,7 +229,6 @@ fn build_grid(min: Vec2, max: Vec2, n: u32) -> Mesh {
             let fx = i as f32 / n as f32;
             let wx = min.x + (max.x - min.x) * fx;
             positions.push([wx, 0.0, -wy]);
-            normals.push([0.0, 1.0, 0.0]);
         }
     }
 
@@ -240,7 +246,6 @@ fn build_grid(min: Vec2, max: Vec2, n: u32) -> Mesh {
 
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
         .with_inserted_indices(Indices::U32(indices))
 }
 

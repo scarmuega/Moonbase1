@@ -1,15 +1,10 @@
 # Credits & attribution
 
 MoonBaseX renders publicly released NASA Lunar Reconnaissance Orbiter (LRO) data. Please
-preserve the following attributions in any video, screenshot, or derivative work.
+preserve the following attribution in any video, screenshot, or derivative work.
 
-## Imagery — LROC NAC South Pole PSR mosaic
-
-> **NASA/GSFC/Arizona State University**
-
-The basemap is the LROC (Lunar Reconnaissance Orbiter Camera) Narrow Angle Camera South Pole
-mosaic of the permanently shadowed regions (contrast-stretched), produced by the LROC team
-at Arizona State University / NASA Goddard Space Flight Center.
+The terrain is rendered entirely from the LOLA elevation model — no orbital imagery is draped
+or shipped, so the only required attribution is for the DEM.
 
 ## Elevation — LOLA / PGDA DEMs
 
@@ -26,9 +21,9 @@ All LOLA polar products are south-polar-stereographic in the MOON_ME frame (JPL 
 
 ## Notes
 
-- These materials are courtesy of NASA. **Use of NASA imagery does not constitute or imply
+- These materials are courtesy of NASA. **Use of NASA data does not constitute or imply
   NASA's endorsement** of this project, its authors, or any product.
-- Shackleton's interior is a permanently shadowed region with no NAC imagery coverage — it
-  renders as real black; its relief is shown via the DEM hillshade, not invented imagery.
-- *If* ShadowCam (Danuri / KPLO) imagery of the shadowed interior is ever composited in,
-  additionally credit **NASA/KARI/Arizona State University**. (Not used currently.)
+- Permanently shadowed regions (e.g. Shackleton's interior) hold no orbital imagery; the whole
+  surface — shadowed floors included — is shown via relief shading of the real DEM, not imagery.
+- *If* orbital imagery (LROC NAC, or ShadowCam from Danuri/KPLO) is ever draped on the terrain,
+  restore the corresponding **NASA/GSFC/ASU** (and **NASA/KARI/ASU** for ShadowCam) attribution.

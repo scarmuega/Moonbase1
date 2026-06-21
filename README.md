@@ -46,8 +46,8 @@ The full design lives in [`specs/`](specs/) — [game mechanics](specs/01-game-m
 The project is at **iteration It-0 + Sprint 02** of a [seven-iteration roadmap](specs/04-roadmap.md).
 What exists today is the *terrain foundation*, not yet the game:
 
-- ✅ **Real-Moon renderer.** An offline pipeline bakes Shackleton-rim and pole-wide tiles from
-  LRO data; the Bevy app flies over them in perspective 3D — GPU-displaced DEM geometry,
+- ✅ **Real-Moon renderer.** An offline pipeline bakes a Shackleton-rim and a pole-wide DEM from
+  LRO LOLA data; the Bevy app flies over them in perspective 3D — GPU-displaced DEM geometry,
   per-fragment relief shading, a live sun angle, and a scripted cinematic fly-over. Holds 60 fps.
 - 🔜 **Next — It-1 "Touchdown":** a Starship-style lander arrives, you place the first modules
   (hab, solar array, battery) with slope-based buildability, and a day/night lighting overlay
@@ -61,7 +61,7 @@ terrain/rendering demo you can fly over.
 
 ## Run it
 
-The baked assets ship via Git LFS, so you can fly over the terrain without re-baking:
+The baked DEM ships via Git LFS, so you can fly over the terrain without re-baking:
 
 ```sh
 git lfs install && git lfs pull
@@ -77,10 +77,10 @@ and [`tools/geo_pipeline`](tools/geo_pipeline/README.md) to re-bake the assets f
 |---|---|
 | [`crates/moon_game`](crates/moon_game/README.md) | The Bevy runtime: camera, terrain rendering, input, UI. |
 | [`crates/moon_data`](crates/moon_data/README.md) | Engine-agnostic manifest types + coordinate transforms. |
-| [`tools/geo_pipeline`](tools/geo_pipeline/README.md) | Offline GDAL bake: raw GeoTIFFs → tile pyramid + heightmap + manifest. |
+| [`tools/geo_pipeline`](tools/geo_pipeline/README.md) | Offline GDAL bake: raw GeoTIFFs → DEM heightmap + manifest. |
 | [`data/`](data/README.md) | Raw source rasters for the bake (build-time only; gitignored). |
 | `specs/` | Game design, architecture, and roadmap. |
-| `assets/` | Baked tiles, elevation, shaders, and site manifests (tiles/elevation in LFS). |
+| `assets/` | Baked elevation, shaders, and site manifests (elevation in LFS). |
 
 Planned but not yet built: `moon_sim` (the pure, deterministic simulation core) and `moon_map`
 (illumination timetable, buildability, pathfinding). See [`specs/03-architecture.md`](specs/03-architecture.md).

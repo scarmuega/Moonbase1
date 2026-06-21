@@ -1,3 +1,2 @@
-# Baked assets live in Git LFS (one site ~300-600 MB). Run `git lfs install` once.
-assets/tiles/** filter=lfs diff=lfs merge=lfs -text
+# The baked DEM lives in Git LFS. Run `git lfs install` once.
 assets/elevation/** filter=lfs diff=lfs merge=lfs -text

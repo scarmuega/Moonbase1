@@ -1,6 +1,8 @@
 /target
 /data/raw/
+/data/raw_southpole/
 **/*.tif
+**/*.aux.xml
 # Scratch dir for the geo_pipeline bake (warped intermediates).
 /assets/.work/
 # Locally captured footage / stills (record practice clips here; not committed).

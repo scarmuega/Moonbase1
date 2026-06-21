@@ -1,12 +1,14 @@
 # `geo_pipeline` — offline terrain bake
 
-Turns raw NASA GeoTIFFs (LOLA DEMs + LROC imagery) into the small pre-baked assets the game
-loads: a tile pyramid, a 16-bit elevation heightmap, and a site manifest. It runs **offline** —
-the committed `assets/{tiles,elevation,sites}/<site>.*` are its output, so most contributors
-never need to run it. The game never reads anything under `data/`.
+Turns raw NASA LOLA GeoTIFFs into the small pre-baked assets the game loads: a 16-bit elevation
+heightmap and a site manifest. It runs **offline** — the committed `assets/{elevation,sites}/<site>.*`
+are its output, so most contributors never need to run it. The game never reads anything under `data/`.
 
-Each site auto-derives its grid (CRS, extent, finest m/px) from its DEM and warps the imagery
-onto that grid so the two register.
+Each site auto-derives its grid (CRS, extent, finest m/px) from its DEM.
+
+> **Legacy:** the bake also still emits an `assets/tiles/` imagery pyramid (warping LROC imagery
+> onto the DEM grid). Those tiles are no longer committed or loaded — the DEM has been the rendered
+> surface since Sprint 02 — and the tiling step is slated for removal.
 
 ## Prerequisites
 

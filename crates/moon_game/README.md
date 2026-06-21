@@ -8,7 +8,7 @@ on. Gameplay (landers, modules, the sim core) is not wired in yet; see the repo 
 
 ## Run
 
-The baked assets ship in the repo via Git LFS (`git lfs install` once, then `git lfs pull`),
+The baked DEM ships in the repo via Git LFS (`git lfs install` once, then `git lfs pull`),
 so you can run without re-baking:
 
 ```sh

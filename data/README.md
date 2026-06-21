@@ -1,11 +1,12 @@
 # `data/` — raw source rasters for the offline bake
 
-The `geo_pipeline` bake (plan 02) reprojects, tiles, and bakes these large source GeoTIFFs
-into the small pre-baked assets the game loads (`assets/tiles`, `assets/elevation`,
-`assets/sites`). **The game never reads anything in here** — these are build-time inputs
-only.
+The `geo_pipeline` bake (plan 02) reprojects and bakes these large source GeoTIFFs into the
+small pre-baked assets the game loads (`assets/elevation`, `assets/sites`). It also still emits
+a legacy `assets/tiles` imagery pyramid that is no longer committed or loaded. **The game never
+reads anything in here** — these are build-time inputs only.
 
-`data/raw/` is gitignored (the files are large and re-downloadable); this README is tracked.
+`data/raw/` and `data/raw_southpole/` are gitignored (the files are large and re-downloadable);
+this README is tracked.
 
 ## 1. Install GDAL (one-time)
 

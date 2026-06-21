@@ -1,96 +1,91 @@
 # MoonBaseX
 
-A from-scratch Rust + [Bevy](https://bevyengine.org) engine that flies over **real lunar
-terrain** at the Moon's south pole — rendered from NASA LRO imagery and elevation. Pan and
-zoom a streaming tile pyramid of the LROC NAC South Pole mosaic, then toggle a live,
-sun-angle-adjustable **hillshade** computed from the LOLA DEM to reveal the relief inside the
-permanently shadowed regions that imagery can't show.
+**Run the first commercial moon base at the lunar south pole — on the real Moon.**
 
-This is iteration It-0. Two baked sites are available:
+MoonBaseX is a crafting / survival-sim about turning imported mass into local self-sufficiency.
+Starship-class landers drop hardware and crew at the Shackleton crater rim; your job is to mine
+ice, crack regolith for oxygen and metals, survive the shadow windows, and grow the station
+until it exports more than it imports. The terrain isn't invented — it's the actual NASA LOLA
+elevation model of the south pole, rendered in 3D. **Craters you mine are real craters.**
 
-| `MOON_SITE` | Area | Detail | Source DEM |
-|---|---|---|---|
-| `southpole` *(default)* | **120 × 120 km**, pole-wide (Shackleton, de Gerlache, Sverdrup, …) | 40 m/px | LOLA 20 m/px 80°S polar LDEM |
-| `shackleton` | 16 × 16 km Shackleton rim | 5 m/px close-up | LOLA 5 m/px Site04 |
+## The game
 
-## Run
+You land cargo, deploy modules, and manage the flows that keep a base alive:
 
-The baked assets ship in the repo via Git LFS (`git lfs install` once, then `git lfs pull`),
-so you can run without re-baking:
-
-```sh
-cargo run -p moon_game --release                 # default: the pole-wide southpole site
-MOON_SITE=shackleton cargo run -p moon_game --release   # the 5 m/px Shackleton close-up
+```
+LAND cargo → DEPLOY/BUILD modules → MANAGE flows (power, O₂, H₂O, heat)
+→ MINE regolith & ice → REFINE (ISRU) → CRAFT parts → EXPAND
+→ reduce Earth-dependence → unlock exports → repeat at larger scale
 ```
 
-(`--release` is needed to hold 60 fps; the asset path resolves from the workspace root
-automatically, so the launch directory doesn't matter. `MOON_SITE` selects any baked
-`assets/sites/<id>.ron`.)
+The Shackleton rim is a gift to game design: ridges in **near-continuous sunlight** (your power
+budget) sit beside **permanently shadowed regions** that hold water ice at ~40–100 K (the prize,
+in the most hostile terrain). A full lunar day-night cycle runs ~29.5 Earth days — at the pole,
+"night" is *your* ridge's shadow window, precomputed from real sun geometry, and surviving it is
+the recurring survival event you plan around.
 
-### Controls
+Crafting is the sustainability mechanic: each tier moves a recipe input from *imported* to
+*local* — sintered regolith bricks → local metals and spare parts → local electronics and
+propellant export. The score is the **import-dependence ratio**: the fraction of consumed mass
+that came from Earth. Drive it to zero.
 
-| Input | Action |
-|---|---|
-| Left-drag | Pan (grab the world) |
-| Scroll / pinch | Zoom to cursor |
-| `H` | Toggle imagery ↔ DEM hillshade |
-| `G` | Toggle the auto sun-sweep (rotates the hillshade sun azimuth) |
-| `F` | Play/stop the scripted cinematic fly-over |
-| `F1` | Show/hide the HUD overlay |
+### Design pillars
 
-The HUD shows live FPS, camera position (m), scale (m/px), active LOD, and tile count, plus
-sliders for the sun azimuth/altitude. The fly-over keyframes in
-[`crates/moon_game/src/flythrough.rs`](crates/moon_game/src/flythrough.rs) are **site-relative**
-(fractions of the world extent), so one path reframes itself to whichever site is loaded — to
-re-author, just nudge the fractions and replay with `F`.
+1. **Real ground.** The terrain is the actual LOLA south-pole DEM, rendered as 3D relief.
+2. **Plausible-fun.** Systems mirror real lunar engineering (ISRU, PSR ice, illumination cycles,
+   dust) with numbers tuned for play, not papers.
+3. **Sustainability as score.** Win by reaching a self-sustaining station that survives a full
+   lunar cycle with zero resupply.
+4. **Show, don't ship.** Every milestone produces something video-worthy.
 
-## Reproduce the build from raw data
+The full design lives in [`specs/`](specs/) — [game mechanics](specs/01-game-mechanics.md),
+[architecture](specs/03-architecture.md), and the [roadmap](specs/04-roadmap.md).
 
-The committed assets are produced offline by the `geo_pipeline` bake from raw NASA
-GeoTIFFs (`brew install gdal` first — the bake shells out to GDAL). Each site auto-derives
-its grid (CRS, extent, finest m/px) from its DEM and warps the imagery onto that grid so the
-two register; it writes `assets/{tiles,elevation,sites}/<site>.*`.
+## Current status
 
-**Pole-wide `southpole` site** (the default flyover). The 120 km box is cropped from the
-LOLA 20 m/px polar LDEM at its 40 m overview — the full-res tile index of that COG is flaky
-over `/vsicurl`, but the overview reads reliably and fast:
+The project is at **iteration It-0 + Sprint 02** of a [seven-iteration roadmap](specs/04-roadmap.md).
+What exists today is the *terrain foundation*, not yet the game:
+
+- ✅ **Real-Moon renderer.** An offline pipeline bakes Shackleton-rim and pole-wide tiles from
+  LRO data; the Bevy app flies over them in perspective 3D — GPU-displaced DEM geometry,
+  per-fragment relief shading, a live sun angle, and a scripted cinematic fly-over. Holds 60 fps.
+- 🔜 **Next — It-1 "Touchdown":** a Starship-style lander arrives, you place the first modules
+  (hab, solar array, battery) with slope-based buildability, and a day/night lighting overlay
+  sweeps real shadows across the site.
+- ⏳ **Then:** the deterministic sim core (power/O₂/water networks, crew, time controls), mining
+  + ISRU + crafting chains, hazards (dust, solar storms, thermal), and the economy/sustainability
+  score that closes the loop.
+
+There is **no gameplay yet** — no landers, modules, crew, or sim. The current build is a
+terrain/rendering demo you can fly over.
+
+## Run it
+
+The baked assets ship via Git LFS, so you can fly over the terrain without re-baking:
 
 ```sh
-scripts/fetch_data.sh --region                                   # → data/raw_southpole (~45 MB)
-cargo run -p geo_pipeline -- bake --site southpole --raw data/raw_southpole --out assets
-cargo run -p geo_pipeline -- check assets/sites/southpole.ron
+git lfs install && git lfs pull
+cargo run -p moon_game --release      # default: the pole-wide south-pole site
 ```
 
-`--region-km <km>` / `--region-mpp <m>` resize the crop (e.g. `--region-km 160`). At 40 m/px
-the hillshade DEM stays one modest GPU texture; finer/larger crops grow it.
-
-**Shackleton 5 m/px close-up:**
-
-```sh
-scripts/fetch_data.sh --with-imagery                             # DEM (~41 MB) + NAC crop (~3 MB)
-cargo run -p geo_pipeline -- bake --site shackleton --raw data/raw --out assets
-```
-
-See [`data/README.md`](data/README.md) for full provenance and how to swap imagery sources.
-
-## Data sources
-
-- **Regional DEM (`southpole`):** PGDA LOLA 20 m/px south-polar LDEM (80°S), *A New View of
-  the Lunar South Pole from LOLA* — <https://pgda.gsfc.nasa.gov/products/90>.
-- **Close-up DEM (`shackleton`):** PGDA LOLA 5 m/px, Site04 (Shackleton rim) —
-  <https://pgda.gsfc.nasa.gov/products/78>. Barker et al. (2021), *Improved LOLA Elevation
-  Maps for South Pole Landing Sites*.
-- **Imagery:** LROC NAC South Pole PSR mosaic (contrast-stretched), polar stereographic
-  (~11.7 m/px) — LROC PDS node.
-
-See [`CREDITS.md`](CREDITS.md) for required NASA attribution.
+See [`crates/moon_game`](crates/moon_game/README.md) for controls, sites, and rendering details,
+and [`tools/geo_pipeline`](tools/geo_pipeline/README.md) to re-bake the assets from raw NASA data.
 
 ## Workspace layout
 
 | Crate / dir | Role |
 |---|---|
-| `crates/moon_game` | The Bevy runtime: camera, tile streaming, hillshade, flythrough. |
-| `crates/moon_data` | Engine-agnostic manifest types + coordinate transforms. |
-| `tools/geo_pipeline` | Offline GDAL bake: raw GeoTIFFs → tile pyramid + heightmap + manifest. |
-| `scripts/fetch_data.sh` | Downloads the raw source rasters into `data/raw/`. |
-| `assets/` | Baked tiles, elevation, shaders, and the site manifest (tiles/elevation in LFS). |
+| [`crates/moon_game`](crates/moon_game/README.md) | The Bevy runtime: camera, terrain rendering, input, UI. |
+| [`crates/moon_data`](crates/moon_data/README.md) | Engine-agnostic manifest types + coordinate transforms. |
+| [`tools/geo_pipeline`](tools/geo_pipeline/README.md) | Offline GDAL bake: raw GeoTIFFs → tile pyramid + heightmap + manifest. |
+| [`data/`](data/README.md) | Raw source rasters for the bake (build-time only; gitignored). |
+| `specs/` | Game design, architecture, and roadmap. |
+| `assets/` | Baked tiles, elevation, shaders, and site manifests (tiles/elevation in LFS). |
+
+Planned but not yet built: `moon_sim` (the pure, deterministic simulation core) and `moon_map`
+(illumination timetable, buildability, pathfinding). See [`specs/03-architecture.md`](specs/03-architecture.md).
+
+## Credits
+
+MoonBaseX renders publicly released NASA LRO data. See [`CREDITS.md`](CREDITS.md) for required
+attribution — please preserve it in any video, screenshot, or derivative work.

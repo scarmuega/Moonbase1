@@ -1,6 +1,6 @@
 # Credits & attribution
 
-Mooncraft renders publicly released NASA Lunar Reconnaissance Orbiter (LRO) data. Please
+MoonBaseX renders publicly released NASA Lunar Reconnaissance Orbiter (LRO) data. Please
 preserve the following attributions in any video, screenshot, or derivative work.
 
 ## Imagery — LROC NAC South Pole PSR mosaic

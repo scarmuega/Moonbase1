@@ -1,4 +1,4 @@
-# Mooncraft
+# MoonBaseX
 
 A from-scratch Rust + [Bevy](https://bevyengine.org) engine that flies over **real lunar
 terrain** at the Moon's south pole — rendered from NASA LRO imagery and elevation. Pan and

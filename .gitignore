@@ -6,3 +6,5 @@
 # Locally captured footage / stills (record practice clips here; not committed).
 /dev-clips/
 .DS_Store
+# Symlink to specs living outside the repo (/Users/santiago/Brain/specs/mooncraft).
+/specs

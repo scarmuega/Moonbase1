@@ -7,9 +7,12 @@
 //! Run from anywhere — the asset root is pinned to the workspace `assets/`:
 //! `cargo run -p moon_game` (or `MOON_SITE=shackleton cargo run -p moon_game`).
 
+mod build;
 mod debug_ui;
 mod flythrough;
+mod ground;
 mod hillshade;
+mod selection;
 mod terrain3d;
 
 use bevy::asset::AssetPlugin;
@@ -18,9 +21,12 @@ use bevy::prelude::*;
 use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 use moon_data::SiteManifest;
 
+use build::BuildPlugin;
 use debug_ui::{debug_ui, ShowUi};
 use flythrough::{play_flythrough, Flythrough};
+use ground::GroundPlugin;
 use hillshade::HillshadePlugin;
+use selection::SelectionPlugin;
 use terrain3d::Terrain3dPlugin;
 
 // Bevy resolves assets via BEVY_ASSET_ROOT → CARGO_MANIFEST_DIR → exe-dir, never
@@ -63,6 +69,9 @@ fn main() {
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(HillshadePlugin)
         .add_plugins(Terrain3dPlugin)
+        .add_plugins(GroundPlugin)
+        .add_plugins(BuildPlugin)
+        .add_plugins(SelectionPlugin)
         .insert_resource(Site(manifest))
         .init_resource::<Flythrough>()
         .init_resource::<ShowUi>()

@@ -15,6 +15,7 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 
+use crate::ground::ProjectionMode;
 use crate::terrain3d::{CameraRig, MainCamera};
 
 /// One stop on the path. `dist_frac` is `0` = closest (rig min distance) … `1` = widest
@@ -52,15 +53,22 @@ pub struct Flythrough {
 }
 
 /// Drive (or cancel) the scripted path.
+#[allow(clippy::too_many_arguments)] // a Bevy system's params aren't a refactor smell
 pub fn play_flythrough(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
+    proj_mode: Res<ProjectionMode>,
     mut wheel: MessageReader<MouseWheel>,
     mut fly: ResMut<Flythrough>,
     mut rig: ResMut<CameraRig>,
     mut camera: Query<&mut Transform, With<MainCamera>>,
 ) {
+    // The scripted path is a perspective-only beauty pass; `F` is a no-op in isometric.
+    if *proj_mode == ProjectionMode::Iso {
+        fly.playing = false;
+        return;
+    }
     if keys.just_pressed(KeyCode::KeyF) {
         fly.playing = !fly.playing;
         fly.t = 0.0;

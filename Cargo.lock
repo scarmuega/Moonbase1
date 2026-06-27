@@ -3808,6 +3808,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "image",
  "moon_data",
  "ron 0.8.1",
  "serde",

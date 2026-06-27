@@ -27,7 +27,7 @@ pub fn debug_ui(
     mut show: ResMut<ShowUi>,
     diagnostics: Res<DiagnosticsStore>,
     mut sun: ResMut<HillshadeState>,
-    mut rig: ResMut<CameraRig>,
+    rig: Res<CameraRig>,
     mut look: ResMut<TerrainLook>,
 ) -> Result {
     if keys.just_pressed(KeyCode::F1) {
@@ -51,14 +51,13 @@ pub fn debug_ui(
         ui.label(format!("distance: {:.0} m", rig.distance));
 
         ui.separator();
-        ui.add(egui::Slider::new(&mut rig.vexag, 1.0..=8.0).text("vertical exag."));
         ui.add(egui::Slider::new(&mut look.synth, 0.0..=2.0).text("synthetic relief"));
         ui.checkbox(&mut sun.sweeping, "sun sweep (G)");
         ui.add(egui::Slider::new(&mut sun.sun_azimuth_deg, 0.0..=360.0).text("sun azimuth°"));
         ui.add(egui::Slider::new(&mut sun.sun_altitude_deg, 0.0..=90.0).text("sun altitude°"));
 
         ui.separator();
-        ui.label("drag orbit · wheel zoom · F flythrough · G sun sweep · F1 hide UI");
+        ui.label("drag orbit · wheel zoom · P iso/persp · F flythrough · G sun sweep · F1 hide UI");
     });
 
     Ok(())

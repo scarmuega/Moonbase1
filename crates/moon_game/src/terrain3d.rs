@@ -7,9 +7,11 @@
 //! low-value LROC patches. The sun is the shared [`HillshadeState`] parameter (egui
 //! sliders + `G` sweep), fed into the shader.
 //!
-//! Geometry is displaced in the vertex shader (so `vexag` is a live uniform) and the
-//! fragment stage samples the DEM per fragment for a crisp normal — independent of mesh
-//! density. Coordinate mapping: world `(x, y)` +Y = north → 3D `(x, h·vexag, -y)`.
+//! Geometry is displaced in the vertex shader and the fragment stage samples the DEM per
+//! fragment for a crisp normal — independent of mesh density. Vertical exaggeration is the
+//! constant [`crate::ground::TERRAIN_VEXAG`] (shared with CPU grounding so the rendered
+//! surface and placed entities never diverge). Coordinate mapping: world `(x, y)` +Y = north
+//! → 3D `(x, h·vexag, -y)`.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -21,6 +23,7 @@ use bevy::shader::ShaderRef;
 use bevy_egui::{EguiContexts, PrimaryEguiContext};
 use moon_data::SiteManifest;
 
+use crate::ground::{GroundSet, TerrainField, TERRAIN_VEXAG};
 use crate::hillshade::HillshadeState;
 use crate::Site;
 
@@ -33,8 +36,6 @@ const UI_LAYER: usize = 2;
 /// verts. The grid is flat and displaced on the GPU, so this is a one-time startup cost
 /// and `vexag` stays a live uniform (no rebuilds).
 const MAX_GRID_QUADS: u32 = 2048;
-/// Default vertical exaggeration; the relief at these poles is gentle. Slider 1–8.
-const DEFAULT_VEXAG: f32 = 1.5;
 /// Default synthetic sub-DEM relief strength. Slider 0–2.
 const DEFAULT_SYNTH: f32 = 0.4;
 /// Orbit drag sensitivity (radians per pixel of mouse motion).
@@ -43,9 +44,15 @@ const ORBIT_SENS: f32 = 0.005;
 const ZOOM_SPEED: f32 = 0.12;
 /// Trackpad pixel-delta → line-equivalent factor (one wheel notch ≈ 16 px).
 const PIXEL_TO_LINE: f32 = 1.0 / 16.0;
+/// Camera near-clip (metres). A small **absolute** value so the camera can dolly down to base
+/// scale (a single 5–20 m module) on any site — the old `diag·0.001` was ~170 m on southpole,
+/// which clipped everything at the base. The far plane (`diag·4`) + reverse-Z keep the
+/// whole-site overview precise. Shared with `ground::toggle_projection` so both projections clip
+/// identically.
+pub(crate) const CAMERA_NEAR: f32 = 10.0;
 
-/// Orbit/perspective camera rig + the live vertical-exaggeration control. Distances
-/// derive from the site bbox so it adapts to any baked site.
+/// Orbit/perspective camera rig. Distances derive from the site bbox so it adapts to any
+/// baked site.
 #[derive(Resource)]
 pub struct CameraRig {
     pub yaw: f32,
@@ -55,7 +62,6 @@ pub struct CameraRig {
     pub min_distance: f32,
     pub max_distance: f32,
     pub fov: f32,
-    pub vexag: f32,
 }
 
 impl CameraRig {
@@ -66,12 +72,18 @@ impl CameraRig {
         Self {
             yaw: 45f32.to_radians(),
             pitch: 35f32.to_radians(),
-            distance: diag * 0.8,
+            // Buildables are metre-scale, so the working framing is an absolute distance, not a
+            // fraction of the (km-scale) site: start at the base near origin and let the wheel
+            // dolly down to a single module (`min_distance`) or out to the whole-site overview
+            // (`max_distance`). `F` flythrough still sweeps the full range.
+            distance: 500.0,
+            // `y` is a placeholder: the manifest knows `elev_min/max` but not the elevation
+            // *at the base*, and the terrain renders at absolute elevations. Corrected onto
+            // the real surface by `frame_base_on_surface` once the CPU height field loads.
             target: Vec3::new(center.x, 0.0, -center.y),
-            min_distance: diag * 0.05,
+            min_distance: 50.0,
             max_distance: diag * 2.0,
             fov: 50f32.to_radians(),
-            vexag: DEFAULT_VEXAG,
         }
     }
 
@@ -142,7 +154,12 @@ impl Plugin for Terrain3dPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<TerrainMaterial>::default())
             .init_resource::<TerrainLook>()
-            .add_systems(Startup, setup)
+            // `frame_base_on_surface` needs the rig + `MainCamera` (from `setup`) and the
+            // CPU height field (from `GroundSet::LoadField`), so it runs after both.
+            .add_systems(
+                Startup,
+                (setup, frame_base_on_surface.after(setup).after(GroundSet::LoadField)),
+            )
             .add_systems(Update, (orbit_camera, sync_terrain));
     }
 }
@@ -169,7 +186,7 @@ fn setup(
             elev_max: m.dem.elev_max_m as f32,
             sun_azimuth: m.sun.azimuth_deg.to_radians(),
             sun_altitude: m.sun.altitude_deg.to_radians(),
-            vexag: rig.vexag,
+            vexag: crate::ground::TERRAIN_VEXAG,
             synth: look.synth,
         },
         dem: asset_server.load(m.dem.path.clone()),
@@ -182,6 +199,9 @@ fn setup(
         Mesh3d(meshes.add(build_grid(min, max, quads))),
         MeshMaterial3d(material.clone()),
         Transform::default(),
+        // The terrain mesh is flat on the CPU (displaced only in the vertex shader), so a mesh
+        // ray would hit the wrong surface — exclude it from picking (selection in `selection.rs`).
+        Pickable::IGNORE,
     ));
 
     // Main perspective scene camera.
@@ -190,7 +210,7 @@ fn setup(
         Camera { order: 0, ..default() },
         Projection::Perspective(PerspectiveProjection {
             fov: rig.fov,
-            near: (diag * 0.001).max(5.0),
+            near: CAMERA_NEAR,
             far: diag * 4.0,
             ..default()
         }),
@@ -213,6 +233,26 @@ fn setup(
 
     commands.insert_resource(rig);
     commands.insert_resource(TerrainHandle(material));
+}
+
+/// Lift the camera onto the real terrain surface at the base. The rig is built from the
+/// manifest alone (`CameraRig::from_manifest`), which can't know the elevation at the base,
+/// so it defaults the look-at to `y = 0`. But the terrain renders at *absolute* lunar
+/// elevations (`height_at · vexag`, ±km around datum), so `y = 0` spawns the eye under (or
+/// far below) the ground — the base and lander end up out of frame. Runs once at startup,
+/// after the height field loads, and re-applies the camera transform with the fixed target.
+fn frame_base_on_surface(
+    site: Res<Site>,
+    field: Res<TerrainField>,
+    mut rig: ResMut<CameraRig>,
+    mut cam: Query<&mut Transform, With<MainCamera>>,
+) {
+    let m = &site.0;
+    let base_xy = (m.world_min() + m.world_max()) * 0.5; // base = site center (≈ origin)
+    rig.target = Vec3::new(base_xy.x, field.height_at(m, base_xy) * TERRAIN_VEXAG, -base_xy.y);
+    if let Ok(mut t) = cam.single_mut() {
+        *t = rig.transform();
+    }
 }
 
 /// Hand-rolled subdivided plane over the world bbox, in the XZ plane (y = 0; height
@@ -250,10 +290,14 @@ fn build_grid(min: Vec2, max: Vec2, n: u32) -> Mesh {
 }
 
 /// Orbit the camera: left-drag rotates (yaw/pitch), wheel dollies. Yields the pointer
-/// to egui. Skips while the scripted flythrough owns the camera.
-fn orbit_camera(
+/// to egui. Skips while the scripted flythrough owns the camera. In isometric mode the pitch
+/// is locked (yaw + wheel still apply); `toggle_projection` maps the wheel-driven distance to
+/// the orthographic extent.
+#[allow(clippy::too_many_arguments)] // a Bevy system's params aren't a refactor smell
+pub(crate) fn orbit_camera(
     mut contexts: EguiContexts,
     flythrough: Res<crate::flythrough::Flythrough>,
+    proj_mode: Res<crate::ground::ProjectionMode>,
     buttons: Res<ButtonInput<MouseButton>>,
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
@@ -283,6 +327,9 @@ fn orbit_camera(
     } else {
         motion.clear();
     }
+    if *proj_mode == crate::ground::ProjectionMode::Iso {
+        dpitch = 0.0; // pitch is locked oblique in the isometric projection
+    }
 
     let mut scroll = 0.0;
     for ev in wheel.read() {
@@ -306,22 +353,20 @@ fn orbit_camera(
     Ok(())
 }
 
-/// Push the live sun angles (shared [`HillshadeState`]) + vexag + dust into the material
-/// uniforms when any source changes.
+/// Push the live sun angles (shared [`HillshadeState`]) + dust into the material uniforms when
+/// a source changes. Vexag is the constant [`crate::ground::TERRAIN_VEXAG`], set once at build.
 fn sync_terrain(
     state: Res<HillshadeState>,
-    rig: Res<CameraRig>,
     look: Res<TerrainLook>,
     handle: Res<TerrainHandle>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
 ) {
-    if !state.is_changed() && !rig.is_changed() && !look.is_changed() {
+    if !state.is_changed() && !look.is_changed() {
         return;
     }
     if let Some(mat) = materials.get_mut(&handle.0) {
         mat.params.sun_azimuth = state.sun_azimuth_deg.to_radians();
         mat.params.sun_altitude = state.sun_altitude_deg.to_radians();
-        mat.params.vexag = rig.vexag;
         mat.params.synth = look.synth;
     }
 }

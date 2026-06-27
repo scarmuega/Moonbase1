@@ -1,0 +1,49 @@
+// Buildable module catalog (Sprint 03 · Plan 02). Loaded at startup as `Vec<ModuleDef>` by
+// `moon_game::build::load_module_catalog`. Adding a module is data-only — no code change.
+// Numbers are plausible-fun placeholders (tuned in It-2), not load-bearing simulation yet.
+//
+// `shape`: Cuboid | Panel (thin box) | Cylinder.
+// `size_m`: bounding dims (x, y=up, z); half-height = size_m.y * 0.5 lifts a centre-origin mesh.
+// `footprint_radius_m`: buildability test radius (+ Plan 03 selection bounds).
+// `max_slope_deg`: steepest ground (real, unscaled metres) the module may sit on.
+[
+    (
+        id: "hab",
+        display_name: "Habitat",
+        blurb: "Pressurised crew quarters.",
+        footprint_radius_m: 8.0,
+        max_slope_deg: 8.0,
+        color: (0.85, 0.85, 0.88),
+        shape: Cuboid,
+        size_m: (12.0, 5.0, 8.0),
+        power_kw: None,
+        power_storage_kwh: None,
+        crew_capacity: Some(4),
+    ),
+    (
+        id: "solar_array",
+        display_name: "Solar Array",
+        blurb: "Photovoltaic power.",
+        footprint_radius_m: 10.0,
+        max_slope_deg: 5.0,
+        color: (0.20, 0.35, 0.70),
+        shape: Panel,
+        size_m: (16.0, 4.0, 1.0),
+        power_kw: Some(50.0),
+        power_storage_kwh: None,
+        crew_capacity: None,
+    ),
+    (
+        id: "battery",
+        display_name: "Battery Bank",
+        blurb: "Stores power for the night.",
+        footprint_radius_m: 5.0,
+        max_slope_deg: 10.0,
+        color: (0.90, 0.70, 0.20),
+        shape: Cuboid,
+        size_m: (6.0, 3.0, 4.0),
+        power_kw: None,
+        power_storage_kwh: Some(200.0),
+        crew_capacity: None,
+    ),
+]

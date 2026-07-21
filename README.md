@@ -1,8 +1,8 @@
-# MoonBaseX
+# Moonbase 1
 
 **Run the first commercial moon base at the lunar south pole — on the real Moon.**
 
-MoonBaseX is a crafting / survival-sim about turning imported mass into local self-sufficiency.
+Moonbase 1 is a crafting / survival-sim about turning imported mass into local self-sufficiency.
 Starship-class landers drop hardware and crew at the Shackleton crater rim; your job is to mine
 ice, crack regolith for oxygen and metals, survive the shadow windows, and grow the station
 until it exports more than it imports. The terrain isn't invented — it's the actual NASA LOLA
@@ -87,5 +87,5 @@ Planned but not yet built: `moon_sim` (the pure, deterministic simulation core) 
 
 ## Credits
 
-MoonBaseX renders publicly released NASA LRO data. See [`CREDITS.md`](CREDITS.md) for required
+Moonbase 1 renders publicly released NASA LRO data. See [`CREDITS.md`](CREDITS.md) for required
 attribution — please preserve it in any video, screenshot, or derivative work.

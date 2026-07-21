@@ -1,6 +1,6 @@
 # Credits & attribution
 
-MoonBaseX renders publicly released NASA Lunar Reconnaissance Orbiter (LRO) data. Please
+Moonbase 1 renders publicly released NASA Lunar Reconnaissance Orbiter (LRO) data. Please
 preserve the following attribution in any video, screenshot, or derivative work.
 
 The terrain is rendered entirely from the LOLA elevation model — no orbital imagery is draped

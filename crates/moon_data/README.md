@@ -7,5 +7,5 @@ that map between world metres and DEM texel space. No Bevy dependency.
 `geo_pipeline` writes manifests; `moon_game` reads them to place the terrain mesh and drive the
 shader's world→DEM-UV mapping, so DEM/imagery registration is data-driven rather than eyeballed.
 
-Per the architecture spec (`specs/03-architecture.md`) this crate will also grow the data layer
+Per the architecture spec (`docs/03-architecture.md`) this crate will also grow the data layer
 for gameplay — building/recipe/contract IDs and the save format — as the sim core lands.

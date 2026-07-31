@@ -56,7 +56,7 @@ imagery drape — the elevation model *is* the surface — over a warm regolith 
 single live direction (`HillshadeState`) fed to the shader.
 
 This superseded the It-0 2D path (a sprite tile pyramid streamed by viewport + a `Material2d`
-hillshade quad). See `specs/03-architecture.md` and `plans/02-sprint/` for the full rationale.
+hillshade quad). See `docs/03-architecture.md` and `plans/02-sprint/` for the full rationale.
 
 ### Source files
 

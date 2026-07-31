@@ -3,7 +3,7 @@
 > Index + shared context for the third roadmap iteration. The detailed work lives in the
 > three sibling plans below; each is self-contained. This sprint follows Sprint 02
 > ([`../02-sprint/00-overview.md`](../02-sprint/00-overview.md)) and is the first slice of
-> roadmap **It-1 "Touchdown"** ([`../../specs/04-roadmap.md`](../../specs/04-roadmap.md)).
+> roadmap **It-1 "Touchdown"** ([`../../docs/04-roadmap.md`](../../docs/04-roadmap.md)).
 
 ## Goal
 
@@ -65,7 +65,7 @@ Plans 02 and 03 **depend on Plan 01** (height field, cursor, grounding). Land 01
 
 All new state is real Bevy ECS. For It-1 the ECS *is* the source of truth; the deterministic
 `moon_sim` projection (events in / commands out) arrives in It-2 — see
-[`../../specs/03-architecture.md`](../../specs/03-architecture.md).
+[`../../docs/03-architecture.md`](../../docs/03-architecture.md).
 
 **Components**
 

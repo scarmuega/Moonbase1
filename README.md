@@ -38,12 +38,12 @@ that came from Earth. Drive it to zero.
    lunar cycle with zero resupply.
 4. **Show, don't ship.** Every milestone produces something video-worthy.
 
-The full design lives in [`specs/`](specs/) — [game mechanics](specs/01-game-mechanics.md),
-[architecture](specs/03-architecture.md), and the [roadmap](specs/04-roadmap.md).
+The full design lives in [`docs/`](docs/) — [game mechanics](docs/01-game-mechanics.md),
+[architecture](docs/03-architecture.md), and the [roadmap](docs/04-roadmap.md).
 
 ## Current status
 
-The project is at **iteration It-0 + Sprint 02** of a [seven-iteration roadmap](specs/04-roadmap.md).
+The project is at **iteration It-0 + Sprint 02** of a [seven-iteration roadmap](docs/04-roadmap.md).
 What exists today is the *terrain foundation*, not yet the game:
 
 - ✅ **Real-Moon renderer.** An offline pipeline bakes a Shackleton-rim and a pole-wide DEM from
@@ -79,11 +79,11 @@ and [`tools/geo_pipeline`](tools/geo_pipeline/README.md) to re-bake the assets f
 | [`crates/moon_data`](crates/moon_data/README.md) | Engine-agnostic manifest types + coordinate transforms. |
 | [`tools/geo_pipeline`](tools/geo_pipeline/README.md) | Offline GDAL bake: raw GeoTIFFs → DEM heightmap + manifest. |
 | [`data/`](data/README.md) | Raw source rasters for the bake (build-time only; gitignored). |
-| `specs/` | Game design, architecture, and roadmap. |
+| `docs/` | Game design, architecture, and roadmap. |
 | `assets/` | Baked elevation, shaders, and site manifests (elevation in LFS). |
 
 Planned but not yet built: `moon_sim` (the pure, deterministic simulation core) and `moon_map`
-(illumination timetable, buildability, pathfinding). See [`specs/03-architecture.md`](specs/03-architecture.md).
+(illumination timetable, buildability, pathfinding). See [`docs/03-architecture.md`](docs/03-architecture.md).
 
 ## Credits
 

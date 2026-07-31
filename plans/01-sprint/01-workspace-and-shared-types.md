@@ -3,7 +3,7 @@
 ## Context
 
 First plan of It-0 (see [`00-it0-overview.md`](00-it0-overview.md)). The repo is greenfield
-(only `specs/` + empty git). This plan lays the Cargo workspace and the one crate that both
+(only `docs/` + empty git). This plan lays the Cargo workspace and the one crate that both
 the offline pipeline and the runtime game must agree on: `moon_data`. Keeping it tiny and
 **Bevy-free** now means the pipeline (which writes the manifest) and the game (which reads
 it) share a single typed contract from day one, and later crates (`moon_map`, `moon_sim`)

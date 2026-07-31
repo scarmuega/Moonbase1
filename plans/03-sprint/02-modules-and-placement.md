@@ -29,7 +29,7 @@ New module `crates/moon_game/src/build.rs` (+ a `BuildPlugin`) and a new data fi
 
 ### Data-driven module catalog
 
-Per [`../../specs/03-architecture.md`](../../specs/03-architecture.md), buildings are RON in
+Per [`../../docs/03-architecture.md`](../../docs/03-architecture.md), buildings are RON in
 `assets/data/`. This sprint creates that directory. `ModuleId` is a serde-transparent
 `String` newtype (mirrors `SiteId` in `moon_data`) so adding a module is data-only.
 

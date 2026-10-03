@@ -14,15 +14,17 @@ use bevy::color::Mix;
 use bevy::picking::{hover::HoverMap, pointer::PointerId};
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 
-use crate::build::{BuildMode, Lander, ModuleCatalog, ModuleKind, Structure};
-use crate::ground::{GroundAnchor, TerrainField};
 use crate::Site;
+use crate::build::{BuildMode, Footprint, Lander, ModuleCatalog, ModuleKind, Structure};
+use crate::ground::{GroundAnchor, TerrainField};
 
 /// The currently selected entity (a [`Structure`] or the [`Lander`]), or `None`.
 #[derive(Resource, Default)]
 pub struct Selection(pub Option<Entity>);
+
+type Selectable = Or<(With<Structure>, With<Lander>)>;
 
 /// Marks the selected entity and caches its original material colour so deselect can restore it.
 #[derive(Component)]
@@ -38,6 +40,8 @@ fn on_pick_structure(
     build: Res<BuildMode>,
     egui_wants: Res<EguiWantsInput>,
     mut selection: ResMut<Selection>,
+    parents: Query<&ChildOf>,
+    owners: Query<(), Selectable>,
 ) {
     // While placing, a click means *place* (Plan 02) — never select.
     if build.placing.is_some() {
@@ -51,7 +55,41 @@ fn on_pick_structure(
     if egui_wants.wants_pointer_input() {
         return;
     }
-    selection.0 = Some(on.entity);
+    selection.0 = structure_owner(on.entity, &parents, &owners);
+}
+
+/// Scene meshes may be arbitrarily deep; gameplay state stays on their owning root.
+fn structure_owner(
+    mut entity: Entity,
+    parents: &Query<&ChildOf>,
+    owners: &Query<(), Selectable>,
+) -> Option<Entity> {
+    loop {
+        if owners.contains(entity) {
+            return Some(entity);
+        }
+        entity = parents.get(entity).ok()?.parent();
+    }
+}
+
+/// GLB materials are shared assets: use a footprint marker instead of tinting them.
+fn highlight_model(
+    selection: Res<Selection>,
+    models: Query<(&GlobalTransform, &Footprint), With<SceneRoot>>,
+    mut gizmos: Gizmos,
+) {
+    if let Some(entity) = selection.0
+        && let Ok((transform, footprint)) = models.get(entity)
+    {
+        gizmos.circle(
+            Isometry3d::new(
+                transform.translation() + Vec3::Y * 0.08,
+                Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+            ),
+            footprint.radius_m,
+            Color::srgb(1.0, 0.95, 0.4),
+        );
+    }
 }
 
 /// A left-click on empty space / terrain clears the selection. `HoverMap` is empty for the mouse
@@ -162,7 +200,35 @@ impl Plugin for SelectionPlugin {
         app.add_plugins(MeshPickingPlugin)
             .init_resource::<Selection>()
             .add_observer(on_pick_structure)
-            .add_systems(Update, (update_highlight, clear_selection_on_empty_click))
+            .add_systems(
+                Update,
+                (
+                    update_highlight,
+                    highlight_model,
+                    clear_selection_on_empty_click,
+                ),
+            )
             .add_systems(EguiPrimaryContextPass, details_panel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scene_child_resolves_owner_and_non_structure_is_ignored() {
+        let mut world = World::new();
+        let root = world.spawn(Structure).id();
+        let node = world.spawn(ChildOf(root)).id();
+        let mesh = world.spawn(ChildOf(node)).id();
+        let unrelated = world.spawn_empty().id();
+        let mut state = bevy::ecs::system::SystemState::<(
+            Query<&ChildOf>,
+            Query<(), Or<(With<Structure>, With<Lander>)>>,
+        )>::new(&mut world);
+        let (parents, owners) = state.get(&world);
+        assert_eq!(structure_owner(mesh, &parents, &owners), Some(root));
+        assert_eq!(structure_owner(root, &parents, &owners), Some(root));
+        assert_eq!(structure_owner(unrelated, &parents, &owners), None);
     }
 }

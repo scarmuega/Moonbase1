@@ -21,6 +21,12 @@ All LOLA polar products are south-polar-stereographic in the MOON_ME frame (JPL 
 
 ## Notes
 
+- The experimental habitat is an authored procedural Blender study (hab-v2),
+  with procedural fabric and solar-cell textures. No generated image pixels or
+  external model weights are embedded. Its supplied visual reference has
+  unresolved rights/provenance; commercial release clearance and asset acceptance
+  remain pending. See [`assets/models/README.md`](assets/models/README.md).
+
 - These materials are courtesy of NASA. **Use of NASA data does not constitute or imply
   NASA's endorsement** of this project, its authors, or any product.
 - Permanently shadowed regions (e.g. Shackleton's interior) hold no orbital imagery; the whole

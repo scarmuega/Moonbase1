@@ -12,6 +12,8 @@ mod debug_ui;
 mod flythrough;
 mod ground;
 mod hillshade;
+mod model_lighting;
+mod preview;
 mod selection;
 mod terrain3d;
 
@@ -22,8 +24,8 @@ use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 use moon_data::SiteManifest;
 
 use build::BuildPlugin;
-use debug_ui::{debug_ui, ShowUi};
-use flythrough::{play_flythrough, Flythrough};
+use debug_ui::{ShowUi, debug_ui};
+use flythrough::{Flythrough, play_flythrough};
 use ground::GroundPlugin;
 use hillshade::HillshadePlugin;
 use selection::SelectionPlugin;
@@ -56,7 +58,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: format!("Mooncraft — {site}"),
-                        ..default()
+                        ..preview::window()
                     }),
                     ..default()
                 })
@@ -72,6 +74,8 @@ fn main() {
         .add_plugins(GroundPlugin)
         .add_plugins(BuildPlugin)
         .add_plugins(SelectionPlugin)
+        .add_plugins(model_lighting::ModelLightingPlugin)
+        .add_plugins(preview::PreviewPlugin)
         .insert_resource(Site(manifest))
         .init_resource::<Flythrough>()
         .init_resource::<ShowUi>()

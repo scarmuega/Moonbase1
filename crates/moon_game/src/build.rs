@@ -12,14 +12,15 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use moon_data::SiteManifest;
 use serde::Deserialize;
 
-use crate::ground::{
-    CursorGround, GroundAnchor, GroundSet, ProjectionMode, ProjectionToggleRequest, TerrainField, TERRAIN_VEXAG,
-};
 use crate::Site;
+use crate::ground::{
+    CursorGround, GroundAnchor, GroundSet, ProjectionMode, ProjectionToggleRequest, TERRAIN_VEXAG,
+    TerrainField,
+};
 
 /// A catalog key. Serde-transparent `String` newtype mirroring `moon_data::SiteId`, so module
 /// ids read as bare strings in RON and adding a module is data-only.
@@ -54,6 +55,9 @@ pub struct ModuleDef {
     pub shape: Shape,
     /// Bounding dims `(x, y=up, z)`; half-height = `size_m[1] * 0.5`.
     pub size_m: [f32; 3],
+    /// Optional ground-origin GLB; size_m remains the primitive ghost proxy.
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(default)]
     #[allow(dead_code)] // consumed by Plan 03 details panel
     pub power_kw: Option<f32>,
@@ -72,6 +76,13 @@ impl ModuleDef {
     fn half_height(&self) -> f32 {
         self.size_m[1] * 0.5
     }
+    pub fn ground_lift(&self) -> f32 {
+        if self.model.is_some() {
+            0.0
+        } else {
+            self.half_height()
+        }
+    }
     fn base_color(&self) -> Color {
         Color::srgb(self.color[0], self.color[1], self.color[2])
     }
@@ -87,7 +98,11 @@ pub struct ModuleCatalog {
 
 impl ModuleCatalog {
     fn new(defs: Vec<ModuleDef>) -> Self {
-        let index = defs.iter().enumerate().map(|(i, d)| (d.id.clone(), i)).collect();
+        let index = defs
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (d.id.clone(), i))
+            .collect();
         Self { defs, index }
     }
     pub fn get(&self, id: &ModuleId) -> Option<&ModuleDef> {
@@ -103,7 +118,8 @@ impl ModuleCatalog {
 fn load_module_catalog(mut commands: Commands) {
     let path = format!("{}/data/modules.ron", crate::ASSET_ROOT);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {path}: {e}"));
-    let defs: Vec<ModuleDef> = ron::from_str(&text).unwrap_or_else(|e| panic!("parsing {path} as Vec<ModuleDef>: {e}"));
+    let defs: Vec<ModuleDef> =
+        ron::from_str(&text).unwrap_or_else(|e| panic!("parsing {path} as Vec<ModuleDef>: {e}"));
     assert!(!defs.is_empty(), "{path}: catalog is empty");
     commands.insert_resource(ModuleCatalog::new(defs));
 }
@@ -161,9 +177,13 @@ pub struct Ghost {
     pub material: Handle<StandardMaterial>,
 }
 
-/// Spawn the ghost hidden with a placeholder unit mesh and its own translucent, unlit material
-/// (there are no lights in the scene — a lit material renders black). Needs no other resource.
-fn spawn_ghost(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+/// Spawn the ghost hidden with a placeholder mesh and a dedicated translucent, unlit
+/// material, keeping the buildability colours independent of the live sun.
+fn spawn_ghost(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     let material = materials.add(StandardMaterial {
         base_color: Color::srgba(0.2, 0.9, 0.2, 0.35),
         unlit: true,
@@ -171,7 +191,11 @@ fn spawn_ghost(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mat
         ..default()
     });
     commands.spawn((
-        Ghost { buildable: false, shown_id: None, material: material.clone() },
+        Ghost {
+            buildable: false,
+            shown_id: None,
+            material: material.clone(),
+        },
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(material),
         Transform::default(),
@@ -191,7 +215,12 @@ fn shape_mesh(meshes: &mut Assets<Mesh>, shape: Shape, size: Vec3) -> Handle<Mes
 
 /// Centre + 8 compass points at the footprint radius; buildable iff every sample's ground slope
 /// (true-metre degrees, independent of [`TERRAIN_VEXAG`]) is within the module's max.
-fn footprint_buildable(field: &TerrainField, m: &SiteManifest, xy: Vec2, def: &ModuleDef) -> bool {
+pub fn footprint_buildable(
+    field: &TerrainField,
+    m: &SiteManifest,
+    xy: Vec2,
+    def: &ModuleDef,
+) -> bool {
     let max = def.max_slope_deg;
     if field.slope_deg_at(m, xy) > max {
         return false;
@@ -207,7 +236,8 @@ fn footprint_buildable(field: &TerrainField, m: &SiteManifest, xy: Vec2, def: &M
         Vec2::new(D, -D),
         Vec2::new(-D, -D),
     ];
-    DIRS.iter().all(|dir| field.slope_deg_at(m, xy + *dir * def.footprint_radius_m) <= max)
+    DIRS.iter()
+        .all(|dir| field.slope_deg_at(m, xy + *dir * def.footprint_radius_m) <= max)
 }
 
 /// Move/retint the ghost each frame while placing (runs after `cursor_ground`). Hidden unless a
@@ -223,7 +253,9 @@ fn update_ghost(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut q: Query<(&mut Ghost, &mut Transform, &mut Mesh3d, &mut Visibility)>,
 ) {
-    let Ok((mut ghost, mut transform, mut mesh, mut vis)) = q.single_mut() else { return };
+    let Ok((mut ghost, mut transform, mut mesh, mut vis)) = q.single_mut() else {
+        return;
+    };
 
     // Show only while placing a known module with the cursor on terrain.
     let (Some(id), Some(xy)) = (build.placing.as_ref(), cursor.0) else {
@@ -290,43 +322,111 @@ fn place_module(
     ghost_q: Query<&Ghost>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let (Some(id), Some(xy)) = (build.placing.as_ref(), cursor.0) else { return };
+    let (Some(id), Some(xy)) = (build.placing.as_ref(), cursor.0) else {
+        return;
+    };
     let Ok(ghost) = ghost_q.single() else { return };
     if !ghost.buildable {
         return;
     }
     let Some(def) = catalog.get(id) else { return };
 
-    // Set Transform.y now (TerrainField is in scope) so the module is grounded on its first
-    // rendered frame. `ground_on_spawn` re-derives the identical value next frame (idempotent).
-    let m = &site.0;
-    let y = field.height_at(m, xy) * TERRAIN_VEXAG + def.half_height();
-
-    commands.spawn((
-        Structure,
-        ModuleKind(id.clone()),
-        GroundAnchor { xy, half_height: def.half_height() },
-        Footprint { radius_m: def.footprint_radius_m },
-        Mesh3d(shape_mesh(&mut meshes, def.shape, def.size())),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: def.base_color(),
-            unlit: true,
-            ..default()
-        })),
-        Transform::from_translation(Vec3::new(xy.x, y, -xy.y)),
-        Pickable::default(), // click-to-select (Plan 03)
-    ));
+    spawn_structure(
+        &mut commands,
+        &asset_server,
+        &mut meshes,
+        &mut materials,
+        &field,
+        &site.0,
+        xy,
+        def,
+    );
 
     tracing::info!(module = %id.0, x = xy.x, y = xy.y, "placed module");
 }
 
+/// Both gameplay and the opt-in capture fixture use this grounded presentation path.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_structure(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    field: &TerrainField,
+    manifest: &SiteManifest,
+    xy: Vec2,
+    def: &ModuleDef,
+) -> Entity {
+    let lift = def.ground_lift();
+    let y = field.height_at(manifest, xy) * TERRAIN_VEXAG + lift;
+    let mut entity = commands.spawn((
+        Structure,
+        ModuleKind(def.id.clone()),
+        GroundAnchor {
+            xy,
+            half_height: lift,
+        },
+        Footprint {
+            radius_m: def.footprint_radius_m,
+        },
+        Transform::from_translation(Vec3::new(xy.x, y, -xy.y)),
+        Visibility::default(),
+        Pickable::default(), // click-to-select (Plan 03)
+    ));
+    if let Some(model) = &def.model {
+        entity.insert(SceneRoot(
+            asset_server.load(GltfAssetLabel::Scene(0).from_asset(model.clone())),
+        ));
+    } else {
+        entity.insert((
+            Mesh3d(shape_mesh(meshes, def.shape, def.size())),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: def.base_color(),
+                unlit: true,
+                ..default()
+            })),
+        ));
+    }
+    entity.id()
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+
+    #[test]
+    fn catalogue_model_is_optional_and_lift_preserves_primitive_path() {
+        let defs: Vec<ModuleDef> =
+            ron::from_str(include_str!("../../../assets/data/modules.ron")).unwrap();
+        assert_eq!(defs[0].id.0, "hab");
+        assert_eq!(defs[0].model.as_deref(), Some("models/hab.glb"));
+        assert_eq!(defs[0].ground_lift(), 0.0);
+        assert_eq!(defs[0].footprint_radius_m, 8.0);
+        assert_eq!(defs[0].max_slope_deg, 8.0);
+        assert_eq!(defs[0].crew_capacity, Some(4));
+        assert!(defs[1].model.is_none());
+        assert_eq!(defs[1].ground_lift(), 2.0);
+        assert_eq!(defs[2].ground_lift(), 1.5);
+        let legacy = include_str!("../../../assets/data/modules.ron")
+            .replace("model: Some(\"models/hab.glb\"),", "");
+        let legacy_defs: Vec<ModuleDef> = ron::from_str(&legacy).unwrap();
+        assert!(legacy_defs[0].model.is_none());
+        assert_eq!(legacy_defs[0].ground_lift(), 2.5);
+    }
+}
+
 /// Leave placing mode on `Esc` or right-click. `update_ghost` hides the ghost next frame, so it
 /// stays the single writer of the ghost's `Visibility`.
-fn cancel_build(keys: Res<ButtonInput<KeyCode>>, mouse: Res<ButtonInput<MouseButton>>, mut build: ResMut<BuildMode>) {
+fn cancel_build(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut build: ResMut<BuildMode>,
+) {
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         build.placing = None;
     }
@@ -366,7 +466,10 @@ fn spawn_lander(
 
     commands.spawn((
         Lander,
-        GroundAnchor { xy: best_xy, half_height: 10.0 }, // Cylinder height 20 → half-height 10
+        GroundAnchor {
+            xy: best_xy,
+            half_height: 10.0,
+        }, // Cylinder height 20 → half-height 10
         Mesh3d(meshes.add(Cylinder::new(4.0, 20.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.8, 0.82),
@@ -384,10 +487,21 @@ impl Plugin for BuildPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BuildMode>()
             // `spawn_lander` reads `TerrainField` (inserted by GroundPlugin's `load_terrain_field`).
-            .add_systems(Startup, (load_module_catalog, spawn_ghost, spawn_lander.after(GroundSet::LoadField)))
+            .add_systems(
+                Startup,
+                (
+                    load_module_catalog,
+                    spawn_ghost,
+                    spawn_lander.after(GroundSet::LoadField),
+                ),
+            )
             .add_systems(
                 Update,
-                (update_ghost.after(GroundSet::Cursor), place_module.after(update_ghost), cancel_build),
+                (
+                    update_ghost.after(GroundSet::Cursor),
+                    place_module.after(update_ghost),
+                    cancel_build,
+                ),
             )
             .add_systems(EguiPrimaryContextPass, build_menu);
     }

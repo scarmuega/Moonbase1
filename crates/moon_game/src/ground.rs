@@ -373,4 +373,36 @@ mod tests {
         let hi = f.height_at(&m, Vec2::new(d, 0.0));
         assert!((hi - lo).abs() < 1.0, "discontinuity: {lo} vs {hi}");
     }
+
+    #[test]
+    fn ground_origin_model_and_primitive_lift_share_exaggerated_surface() {
+        let mut app = App::new();
+        app.insert_resource(Site(test_manifest()))
+            .insert_resource(field(2, 2, vec![0; 4], 200.0, 200.0))
+            .add_systems(Update, ground_on_spawn);
+        let xy = Vec2::new(10.0, 20.0);
+        let model = app
+            .world_mut()
+            .spawn((GroundAnchor { xy, half_height: 0.0 }, Transform::default()))
+            .id();
+        let primitive = app
+            .world_mut()
+            .spawn((GroundAnchor { xy, half_height: 2.5 }, Transform::default()))
+            .id();
+        app.update();
+        let expected = 200.0 * TERRAIN_VEXAG;
+        assert_eq!(
+            app.world().get::<Transform>(model).unwrap().translation,
+            Vec3::new(10.0, expected, -20.0)
+        );
+        assert_eq!(
+            app.world().get::<Transform>(primitive).unwrap().translation,
+            Vec3::new(10.0, expected + 2.5, -20.0)
+        );
+        app.update();
+        assert_eq!(
+            app.world().get::<Transform>(primitive).unwrap().translation.y,
+            expected + 2.5
+        );
+    }
 }
